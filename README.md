@@ -2,11 +2,12 @@
 
 # Senler.io User для Hermes Agent
 
-Пакет подключает рабочие инструкции Senler.io к Hermes. Данные и действия
-доступны через существующий пользовательский MCP-сервер, с правами вошедшего
-пользователя Senler. В пакете два skill: работа с User MCP и обработка входящих.
+Плагин содержит настройки подключения к пользовательскому MCP-серверу Senler.io,
+команду входа и два skill: работу с User MCP и обработку входящих. Адрес сервера
+и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
+Данные и действия доступны с правами этого пользователя.
 
-Версия 0.2.4 — предварительный выпуск для ручной проверки на Windows. В неё входит помощник
+Версия 0.3.0 — предварительный выпуск для ручной проверки на Windows. В неё входит помощник
 настройки: выключенная подписка → проверка выбранных событий → автоматическое
 включение через MCP. Сквозной вход и обработку в настоящем Hermes проверяет
 владелец установки. Новые возможности требуют соответствующего обновления
@@ -14,7 +15,7 @@ Senler API, отправщика вебхуков и User MCP; ZIP не обно
 
 ## Установка из GitHub на Windows
 
-Нужен установленный Hermes с поддержкой Agent Plugins v1 и Git. Используйте тот же Hermes и
+Нужен актуальный Hermes с нативными плагинами, регистрацией CLI-команд и OAuth для MCP, а также Git. Используйте тот же Hermes и
 каталог данных, что и в Desktop; подключение Desktop к другому компьютеру
 требует установки на том компьютере.
 
@@ -22,17 +23,18 @@ Senler API, отправщика вебхуков и User MCP; ZIP не обно
 hermes --version
 hermes plugins install SenlerBot/senler-io-user-hermes-plugin --no-enable
 hermes plugins enable senler-io-user
+hermes senler connect
 ```
 
-После установки перейдите к разделу **Подключение Senler** ниже: OAuth-вход
-выполняется отдельно. Публикация в официальном каталоге Hermes для установки
+Последняя команда подключает MCP из настроек плагина и запускает вход Senler.
+Подробности — в разделе **Подключение Senler** ниже. Публикация в официальном каталоге Hermes для установки
 из этого репозитория не требуется. Если копия из ZIP уже установлена,
 сначала выполните переход на GitHub-версию по разделу **Обновление** ниже.
 
 ## Установка из ZIP на Windows
 
 Скачайте ZIP из [GitHub Releases](https://github.com/SenlerBot/senler-io-user-hermes-plugin/releases).
-Откройте PowerShell в распакованной папке, рядом с `plugin.json`:
+Откройте PowerShell в распакованной папке, рядом с `plugin.yaml`:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
@@ -60,10 +62,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -HermesHome 'C
 В PowerShell, использующем **тот же каталог данных Hermes**, выполните:
 
 ```powershell
-hermes mcp add senler-io-user --url 'https://mcp-senler-io-user.senler.io/mcp?auth_mode=oauth' --auth oauth --connect-timeout 300
+hermes senler connect
 ```
 
-Пройдите вход Senler в открывшемся браузере. Hermes хранит и обновляет OAuth
+Команда берёт адрес сервера и параметры OAuth из [mcp-server.json](mcp-server.json)
+внутри плагина. Пройдите вход Senler в открывшемся браузере и завершите
+штатные вопросы подключения Hermes. Сообщение об успешном подключении появится
+только после проверки MCP. Hermes хранит и обновляет OAuth
 токены самостоятельно. Если при установке вы передавали `-HermesHome`, сначала
 задайте `$env:HERMES_HOME` с тем же путём в этом PowerShell. Desktop тоже должен
 использовать этот каталог/профиль.
@@ -72,7 +77,7 @@ hermes mcp add senler-io-user --url 'https://mcp-senler-io-user.senler.io/mcp?au
 
 ```powershell
 hermes plugins list
-hermes mcp test senler-io-user
+hermes senler check
 ```
 
 Откройте новую сессию Hermes и отправьте:
@@ -82,9 +87,20 @@ hermes mcp test senler-io-user
 
 Полный сценарий проверки — в [docs/windows-test.md](docs/windows-test.md).
 
-В корне намеренно нет `mcp.json`: поддерживаемый Hermes переносимый формат
-не содержит настройки OAuth. MCP добавляется отдельной штатной командой;
-пакет поставляет skills. Пример конфигурации — [examples/mcp.yaml](examples/mcp.yaml).
+Установка и включение плагина регистрируют команду и skills. Подключение MCP
+создаётся при первом `hermes senler connect`; вход требует участия пользователя
+в интерактивном терминале. Вебхук не должен запускать авторизацию.
+
+Повторный `connect` проверяет существующее подключение, сохраняя его настройки
+и выбранные инструменты. При истёкшей авторизации выполните:
+
+```powershell
+hermes senler connect --reauthorize
+```
+
+Если под именем `senler-io-user` уже настроен другой сервер или подключение
+выключено, команда объяснит причину и сохранит настройки. Пример итоговой
+конфигурации — [examples/mcp.yaml](examples/mcp.yaml).
 
 ## Автоматическая обработка событий
 
@@ -132,9 +148,11 @@ ZIP-копия не имеет Git-источника для `hermes plugins upd
 hermes plugins remove senler-io-user
 ```
 
-MCP-подключение управляется отдельно. Не запускайте `mcp add` заново при каждом
-обновлении: сначала проверьте `hermes mcp test senler-io-user`. При истёкшей
-авторизации используйте `hermes mcp login senler-io-user`.
+После обновления выполните `hermes senler connect`. Ранее созданное подключение
+версии 0.2.x будет использовано с его прежними настройками; повторный вход без
+необходимости не запускается. Если плагин выключен, сначала выполните
+`hermes plugins enable senler-io-user`. Для нового входа используйте
+`hermes senler connect --reauthorize`.
 
 После обновления попросите Hermes применить текущие правила к существующей
 подписке: помощник повторит проверку и включение того же ID. Это обновит
@@ -148,8 +166,9 @@ MCP-подключение управляется отдельно. Не зап�
 
 В `assets/icon.svg` включён исходный логотип Senler из пользовательского
 плагина для Codex. Он отображается в README и копируется при установке.
-Манифест соответствует Agent Plugins v1; поля названия, версии, автора,
-сайта и лицензии заполнены.
+Hermes использует нативный `plugin.yaml` и Python-точку входа. Дополнительный
+`plugin.json` соответствует Agent Plugins v1 и предоставляет переносимый
+вариант skills; нативная команда подключения работает через `plugin.yaml`.
 
 У переносимого `plugin.json` нет поля `icon`. Изображение карточки в каталоге
 Hermes задаётся отдельным полем `image` в записи этого каталога. Наличие SVG в
@@ -158,9 +177,11 @@ ZIP само по себе не назначает значок плагину �
 
 ## Проверки разработчика
 
-Манифест проверен по официальной JSON Schema Agent Plugins 1.0.0. Загрузчик из
-исходников Hermes на указанном в [packaging.md](docs/packaging.md) коммите
-распознал оба skill без диагностик. Проверка установщика выполняется в PowerShell с тестовой
+Дополнительный JSON-манифест проверяется по официальной схеме Agent Plugins 1.0.0.
+Проба регистрации из валидатора Hermes на указанном в
+[packaging.md](docs/packaging.md) коммите проверяет импорт нативного плагина
+и команду `senler`. Тесты подключения проверяют OAuth-команды, сохранение
+существующих настроек и обработку отмены или ошибок. Проверка установщика выполняется в PowerShell с тестовой
 командой вместо Hermes, во временном каталоге: проверяются успешная установка,
 копирование логотипа, пути с пробелами, `-WhatIf`, сохранение старой копии
 и остановка при ошибках.
@@ -177,7 +198,7 @@ python -m unittest discover -s tests -p 'test_*.py'
 
 Проверено по документации и исходникам Hermes 10 октября 2026:
 
-- [Portable Agent Plugins](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins#portable-agent-plugins-v1-packages)
+- [Нативные плагины Hermes](https://hermes-agent.nousresearch.com/docs/developer-guide/plugins)
 - [Native Windows](https://hermes-agent.nousresearch.com/docs/user-guide/windows-native)
 - [MCP OAuth](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp/#oauth-authenticated-http-servers)
 - [Похожая схема OAuth-установки](https://hermes-agent.nousresearch.com/docs/plugins/letsfg)

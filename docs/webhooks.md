@@ -1,6 +1,6 @@
 # Приём событий в Hermes
 
-Нужен актуальный Hermes с native OAuth, portable plugins, динамическими
+Нужен актуальный Hermes с native OAuth, нативными плагинами, динамическими
 webhook-подписками и проверкой Standard Webhooks. Настройка выполняется в том же
 каталоге `HERMES_HOME`, где установлен плагин. Эта версия поддерживает отдельный
 gateway выбранного каталога; режим `gateway.multiplex_profiles` не поддерживается.

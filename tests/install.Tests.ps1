@@ -58,6 +58,9 @@ try {
     & $installer -HermesHome $targetHome -HermesCommand Invoke-SenlerTestHermes
     $installed = Join-Path $targetHome 'plugins\senler-io-user'
     Assert-True (Test-Path (Join-Path $installed 'plugin.json')) 'Manifest missing.'
+    foreach ($relative in @('plugin.yaml', '__init__.py', 'senler_connection.py', 'mcp-server.json')) {
+        Assert-True (Test-Path (Join-Path $installed $relative) -PathType Leaf) "Native connection file missing: $relative"
+    }
     $installedIcon = Join-Path $installed 'assets\icon.svg'
     Assert-True (Test-Path -LiteralPath $installedIcon -PathType Leaf) 'README logo missing from installed package.'
     $sourceIcon = Join-Path (Split-Path $PSScriptRoot -Parent) 'assets\icon.svg'

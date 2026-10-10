@@ -1,0 +1,10 @@
+manifest_version: 2
+name: senler-io-user
+version: "0.3.0"
+description: Senler.io User MCP connection, skills and webhook workflows for Hermes Agent.
+author: Senler
+license: MIT
+homepage: https://github.com/SenlerBot/senler-io-user-hermes-plugin
+tags: [senler, mcp, oauth, webhooks]
+provides_tools: []
+provides_hooks: []

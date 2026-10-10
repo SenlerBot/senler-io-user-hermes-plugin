@@ -1,0 +1,132 @@
+"""Package-owned connection defaults, handed to Hermes's own MCP CLI for OAuth."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from urllib.parse import urlsplit
+
+
+def connection_defaults():
+    config = json.loads(Path(__file__).with_name("mcp-server.json").read_text(encoding="utf-8"))
+    if set(config) != {"name", "url", "auth", "connect_timeout"}:
+        raise ValueError("Invalid bundled Senler MCP configuration")
+    url = urlsplit(config["url"])
+    if (config["name"] != "senler-io-user" or config["auth"] != "oauth"
+            or url.scheme != "https" or not url.hostname or url.username
+            or url.password or url.fragment or config["connect_timeout"] != 300):
+        raise ValueError("Invalid bundled Senler MCP configuration")
+    return config
+
+
+class NativeRuntime:
+    def __init__(self, home, read_config):
+        self.home = str(home)
+        self.read_config = read_config
+
+    def servers(self):
+        config = self.read_config()
+        if not isinstance(config, dict):
+            raise ValueError("Hermes configuration is not a mapping")
+        servers = config.get("mcp_servers", {})
+        if not isinstance(servers, dict):
+            raise ValueError("Hermes mcp_servers is not a mapping")
+        return servers
+
+    def interactive(self):
+        return bool(sys.stdin and sys.stdin.isatty())
+
+    def invoke(self, arguments):
+        # Same interpreter and resolved profile as the parent Hermes invocation.
+        # The public CLI owns prompts, token storage, discovery and config writes.
+        env = {**os.environ, "HERMES_HOME": self.home}
+        return subprocess.run(
+            [sys.executable, "-m", "hermes_cli.main", "mcp", *arguments],
+            env=env, check=False,
+        ).returncode
+
+
+def existing_connection(runtime, defaults):
+    servers = runtime.servers()
+    if defaults["name"] not in servers:
+        return None
+    existing = servers[defaults["name"]]
+    if (not isinstance(existing, dict) or existing.get("url") != defaults["url"]
+            or existing.get("auth") != defaults["auth"] or "command" in existing):
+        raise ValueError(
+            "The name senler-io-user already belongs to a different MCP configuration. "
+            "Existing settings were preserved; resolve the conflict in Hermes first."
+        )
+    if existing.get("enabled", True) is not True:
+        raise ValueError(
+            "The Senler MCP connection is disabled. Enable it in Hermes MCP settings first; "
+            "the plugin did not replace its settings."
+        )
+    return existing
+
+
+def connect(runtime, *, reauthorize=False):
+    defaults = connection_defaults()
+    existing = existing_connection(runtime, defaults)
+    if not runtime.interactive():
+        raise ValueError(
+            "Open PowerShell or an interactive terminal for this Hermes profile and run "
+            "'hermes senler connect'" + (" with --reauthorize" if reauthorize else "")
+            + ". Sign-in requires the user's participation."
+        )
+
+    if existing is None:
+        print("Connecting Senler using the settings bundled in the plugin. Complete sign-in in Hermes.")
+        result = runtime.invoke([
+            "add", defaults["name"], "--url", defaults["url"],
+            "--auth", defaults["auth"], "--connect-timeout", str(defaults["connect_timeout"]),
+        ])
+        if result:
+            return result
+        # `mcp add` can exit zero after cancellation or failed discovery. A saved,
+        # enabled connection is required before any success can be reported.
+        if existing_connection(runtime, defaults) is None:
+            raise ValueError("Senler connection was not saved. Complete sign-in and run 'hermes senler connect' again.")
+    elif reauthorize:
+        result = runtime.invoke(["login", defaults["name"]])
+        if result:
+            return result
+
+    result = runtime.invoke(["test", defaults["name"]])
+    if result == 0:
+        print("Senler MCP connection verified. Open a new Hermes session or run /reload-mcp.")
+    else:
+        print("Senler connection could not be verified. If sign-in expired, run 'hermes senler connect --reauthorize'.")
+    return result
+
+
+def check(runtime):
+    defaults = connection_defaults()
+    if existing_connection(runtime, defaults) is None:
+        raise ValueError("Senler is not connected yet. Run 'hermes senler connect'.")
+    return runtime.invoke(["test", defaults["name"]])
+
+
+def configure_parser(parser):
+    actions = parser.add_subparsers(dest="senler_action", required=True)
+    setup = actions.add_parser("connect", help="Sign in to Senler using the bundled MCP connection")
+    setup.add_argument("--reauthorize", action="store_true", help="Start a fresh Senler OAuth sign-in")
+    actions.add_parser("check", help="Check the existing Senler MCP connection")
+
+
+def handle_command(args):
+    from hermes_constants import get_hermes_home
+    from hermes_cli.config import load_config_readonly
+
+    runtime = NativeRuntime(get_hermes_home(), load_config_readonly)
+    try:
+        if args.senler_action == "check":
+            return check(runtime)
+        return connect(runtime, reauthorize=args.reauthorize)
+    except (OSError, ValueError) as exc:
+        print(f"Senler: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("Senler sign-in interrupted.", file=sys.stderr)
+        return 130

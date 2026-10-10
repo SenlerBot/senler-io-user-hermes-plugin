@@ -11,6 +11,14 @@ accessible projects and capabilities.
 
 ## Connection and discovery
 
+- This native Hermes plugin bundles its MCP endpoint and OAuth settings in
+  `mcp-server.json` and provides `hermes senler connect`. If Senler is not
+  connected, direct the user to run that command in an interactive terminal
+  for the same Hermes profile and complete sign-in. Do not ask them to supply
+  the MCP URL, a project token or OAuth credentials. Use `hermes senler check`
+  to check a saved connection; explicit reauthorization is
+  `hermes senler connect --reauthorize`. Do not run interactive sign-in from
+  a webhook or unattended task. An existing connection from 0.2.x is reused.
 - Hermes owns OAuth, including browser sign-in and refresh. Never request tokens
   in chat, read token files, or invent an authorization tool. If authorization
   fails, explain that the user needs to reconnect this MCP server in Hermes.

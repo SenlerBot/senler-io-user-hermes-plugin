@@ -41,7 +41,7 @@ if (Test-Path -LiteralPath $destination) {
     throw "Plugin directory already exists: $destination. Existing files were preserved. See README.md for updating."
 }
 
-$packageFiles = @('plugin.json', 'LICENSE', 'README.md', 'assets', 'skills', 'docs', 'examples')
+$packageFiles = @('plugin.yaml', 'plugin.json', '__init__.py', 'senler_connection.py', 'mcp-server.json', 'LICENSE', 'README.md', 'assets', 'skills', 'docs', 'examples')
 foreach ($relative in $packageFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $packageRoot $relative))) {
         throw "Incomplete package: $relative is missing. Extract the entire ZIP first."
@@ -70,7 +70,7 @@ try {
         throw "Files are installed at $destination, but enabling failed. Retry 'hermes plugins enable senler-io-user' in the same Hermes home. $($_.Exception.Message)"
     }
     Write-Host "Installed: $destination"
-    Write-Host 'Next: connect Senler in the same Hermes home using the OAuth command in README.md.'
+    Write-Host 'Next: run hermes senler connect in the same Hermes home to sign in. The MCP address is bundled in the plugin.'
     Write-Host 'The installer did not configure an MCP connection or any webhook.'
 } finally {
     [Environment]::SetEnvironmentVariable('HERMES_HOME', $previousHermesHome, 'Process')

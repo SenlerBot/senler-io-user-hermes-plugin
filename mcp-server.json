@@ -1,0 +1,6 @@
+{
+  "name": "senler-io-user",
+  "url": "https://mcp-senler-io-user.senler.io/mcp?auth_mode=oauth",
+  "auth": "oauth",
+  "connect_timeout": 300
+}
