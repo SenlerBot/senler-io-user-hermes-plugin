@@ -8,7 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location("senler_connection_test_module", ROOT / "senler_connection.py")
@@ -109,6 +110,34 @@ class ConnectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "interactive terminal"):
                 self.call(runtime)
             self.assertEqual(runtime.calls, [])
+
+    def test_detached_windows_input_cannot_force_reauthorization(self):
+        get_mode = Mock(return_value=0)
+        windows = SimpleNamespace(kernel32=SimpleNamespace(GetConsoleMode=get_mode))
+        with patch.object(sys, "platform", "win32"), \
+                patch.object(sys, "stdin", Mock(isatty=Mock(return_value=True), fileno=Mock(return_value=0))), \
+                patch.dict(sys.modules, {"msvcrt": SimpleNamespace(get_osfhandle=lambda fd: 123)}), \
+                patch("ctypes.windll", windows, create=True):
+            runtime = connection.NativeRuntime("unused", lambda: {"mcp_servers": self.saved()})
+            with patch.object(runtime, "invoke") as invoke:
+                with self.assertRaisesRegex(ValueError, "interactive terminal"):
+                    self.call(runtime, reauthorize=True)
+                invoke.assert_not_called()
+        get_mode.assert_called_once()
+
+    def test_real_windows_input_console_is_interactive(self):
+        windows = SimpleNamespace(kernel32=SimpleNamespace(GetConsoleMode=Mock(return_value=1)))
+        with patch.object(sys, "platform", "win32"), \
+                patch.object(sys, "stdin", Mock(isatty=Mock(return_value=True), fileno=Mock(return_value=0))), \
+                patch.dict(sys.modules, {"msvcrt": SimpleNamespace(get_osfhandle=lambda fd: 123)}), \
+                patch("ctypes.windll", windows, create=True):
+            self.assertTrue(connection.interactive_console())
+
+    def test_missing_closed_or_redirected_input_is_not_interactive(self):
+        for stream in (None, Mock(isatty=Mock(return_value=False)),
+                       Mock(isatty=Mock(side_effect=ValueError("closed")))):
+            with self.subTest(stream=stream), patch.object(sys, "stdin", stream):
+                self.assertFalse(connection.interactive_console())
 
     def test_check_never_creates_a_connection(self):
         runtime = Runtime()

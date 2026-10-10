@@ -8,6 +8,26 @@ import sys
 from urllib.parse import urlsplit
 
 
+def interactive_console():
+    try:
+        if sys.stdin is None or not sys.stdin.isatty():
+            return False
+        if sys.platform != "win32":
+            return True
+        # Windows reports isatty() for some non-console character devices,
+        # including NUL. Reauthorization must require a real input console.
+        import ctypes
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+        mode = ctypes.c_ulong()
+        return bool(ctypes.windll.kernel32.GetConsoleMode(
+            ctypes.c_void_p(handle), ctypes.byref(mode),
+        ))
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def connection_defaults():
     config = json.loads(Path(__file__).with_name("mcp-server.json").read_text(encoding="utf-8"))
     if set(config) != {"name", "url", "auth", "connect_timeout"}:
@@ -35,7 +55,7 @@ class NativeRuntime:
         return servers
 
     def interactive(self):
-        return bool(sys.stdin and sys.stdin.isatty())
+        return interactive_console()
 
     def invoke(self, arguments):
         # Same interpreter and resolved profile as the parent Hermes invocation.
