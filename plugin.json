@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "senler-io-user",
+  "version": "0.2.4",
+  "description": "Senler.io User MCP for Hermes Agent, with guided webhook setup, verified automatic activation and event processing.",
+  "author": { "name": "Senler", "url": "https://senler.io/" },
+  "homepage": "https://senler.io/",
+  "repository": "https://github.com/SenlerBot/senler-io-user-hermes-plugin",
+  "license": "MIT",
+  "keywords": ["senler", "senler-io", "mcp", "oauth", "webhooks", "automation", "messages"]
+}
