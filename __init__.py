@@ -20,8 +20,13 @@ def relay_available():
 
 
 def register(ctx):
+    from .senler_chat import CONNECT_SCHEMA, prepare_connection
     from .senler_relay_actions import before_tool, on_session_end
     root = Path(__file__).parent
+    ctx.register_tool(
+        name="senler_connect", toolset="senler-io-user", schema=CONNECT_SCHEMA,
+        handler=prepare_connection, emoji="🔗",
+    )
     ctx.register_hook("pre_tool_call", before_tool)
     ctx.register_hook("on_session_end", on_session_end)
     skills = {

@@ -166,9 +166,12 @@ class ConnectionTests(unittest.TestCase):
                 runtime.servers()
 
     def test_native_registration_is_passive_and_exposes_skills_and_connection_cli(self):
-        registered = {"skills": [], "commands": [], "platforms": [], "hooks": {}}
+        registered = {"skills": [], "commands": [], "platforms": [], "hooks": {}, "tools": {}}
 
         class Context:
+            def register_tool(self, **kwargs):
+                registered["tools"][kwargs["name"]] = kwargs
+
             def register_skill(self, name, path, description=""):
                 registered["skills"].append((name, Path(path), description))
 
@@ -190,6 +193,8 @@ class ConnectionTests(unittest.TestCase):
                 spec.loader.exec_module(module)
                 module.register(Context())
             self.assertEqual(set(registered["hooks"]), {"pre_tool_call", "on_session_end"})
+            self.assertEqual(set(registered["tools"]), {"senler_connect"})
+            self.assertEqual(registered["tools"]["senler_connect"]["schema"]["parameters"]["properties"], {})
             self.assertIsNone(registered["hooks"]["pre_tool_call"]("terminal", {}, session_id="normal-user-chat"))
             self.assertIsNone(registered["hooks"]["on_session_end"](completed=True, failed=False, interrupted=False,
                                                                    platform="cli", session_id="normal-user-chat"))

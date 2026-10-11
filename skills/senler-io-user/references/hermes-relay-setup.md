@@ -10,14 +10,16 @@ This preserves UTF-8 input/output in PowerShell 5. It invokes the same
 
 ## Prepare
 
-1. Resolve the project, event types and processing rules using User MCP. Read
+1. Establish a working MCP connection using the parent skill's in-chat
+   connection flow if necessary. Finish native authorization and tool discovery
+   before configuring any automation. A saved connection alone is not enough;
+   stop on cancellation or failure. Do not initiate authorization from an event.
+2. Resolve the project, event types and processing rules using User MCP. Read
    the actual available-events catalog; all subscribed types are supported.
    Save the actions the operator requested in plain-language instructions.
    Include requested channel and business filters in the saved operator policy.
    A request for automatic processing authorizes enabling this background adapter;
    do not ask for that same permission again.
-2. Verify MCP with `hermes senler check`. Missing OAuth requires interactive
-   `hermes senler connect`, never credentials pasted in chat.
 3. Run `hermes senler relay identity` and `hermes senler relay status` in the
    same profile. Retain the stable `client_id`, `client_name`, saved webhook IDs
    and `local_revision`. These commands do not disclose credentials.

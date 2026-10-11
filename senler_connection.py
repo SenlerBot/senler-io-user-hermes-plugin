@@ -67,7 +67,7 @@ class NativeRuntime:
         ).returncode
 
 
-def existing_connection(runtime, defaults):
+def existing_connection(runtime, defaults, *, allow_disabled=False):
     servers = runtime.servers()
     if defaults["name"] not in servers:
         return None
@@ -78,7 +78,8 @@ def existing_connection(runtime, defaults):
             "The name senler-io-user already belongs to a different MCP configuration. "
             "Existing settings were preserved; resolve the conflict in Hermes first."
         )
-    if existing.get("enabled", True) is not True:
+    enabled = existing.get("enabled", True)
+    if enabled is not True and not (allow_disabled and enabled is False):
         raise ValueError(
             "The Senler MCP connection is disabled. Enable it in Hermes MCP settings first; "
             "the plugin did not replace its settings."
