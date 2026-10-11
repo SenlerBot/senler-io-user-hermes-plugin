@@ -18,7 +18,7 @@ accessible projects and capabilities.
   the MCP URL, a project token or OAuth credentials. Use `hermes senler check`
   to check a saved connection; explicit reauthorization is
   `hermes senler connect --reauthorize`. Do not run interactive sign-in from
-  a webhook or unattended task. An existing connection from 0.2.x is reused.
+  a webhook or unattended task. Reuse an existing compatible connection.
 - Hermes owns OAuth, including browser sign-in and refresh. Never request tokens
   in chat, read token files, or invent an authorization tool. If authorization
   fails, explain that the user needs to reconnect this MCP server in Hermes.
@@ -53,10 +53,14 @@ is still checked by the API; OAuth scope eligibility alone is insufficient.
 ## Connecting event processing
 
 When the operator asks to process incoming messages or other Senler events,
-read [webhook setup](references/webhook-setup.md) and complete that workflow.
-It creates a disabled subscription, verifies each event and enables the webhook
-in the same request. Do not ask for a separate enable instruction after a
-successful test. Resolve only missing project, endpoint or action policy.
+read [Hermes Relay setup](references/hermes-relay-setup.md) and complete that workflow.
+Use `kind=hermes` without a destination URL. The plugin connects outwards to
+Senler, verifies every subscribed event type and the server activates it in the
+same request. Do not ask for a separate enable instruction after a successful
+test. Resolve only missing project, event scope or action policy.
+For a later rule change, follow the same reference's instruction-editing flow:
+read the saved rules, then update them with their current revision. Editing
+rules does not require another connection or authorization flow.
 
 ## Incoming events
 
@@ -66,18 +70,20 @@ create a webhook subscription or start a listener.
 
 ## Review processing results
 
-For "show the drafts/results", use the helper's `connections` with the resolved
-`project_id` to find the saved workflow; do not guess its name from a previous
-chat. `connections` and `status` return `result_search_query`. In the operator's interactive chat, use
-the native Hermes `session_search` with that exact marker, `role_filter:
-"assistant"`, `sort: "newest"` and a small limit. Read the returned session IDs
-before reporting a draft or completed action; discovery snippets may be cut off.
-Use the returned session link for the complete transcript when content is
-truncated. Show only matching webhook sessions for the requested project.
+For a Hermes Relay subscription, use `hermes senler relay status` and the
+Hermes-deliveries MCP method for that exact project and saved webhook ID.
+Distinguish durable receipt from completed processing. Never print credentials
+or rerun an event to obtain its result.
+
+For the full transcript, use the native Hermes `session_search` in the
+operator's interactive chat with the exact result marker
+`senler:<webhook_id>:<event_id>`, `role_filter: "assistant"`, `sort: "newest"`
+and a small limit. Read matching session IDs before reporting a result;
+discovery snippets may be cut off. Scope the lookup to the requested project.
 
 Do not rerun an event to retrieve its output. If no final response was saved,
 say that no completed result was found and check gateway/model errors. A saved
-local active phase or a successful HTTP test is not evidence of a completed job.
+connection or a successful delivery probe is not evidence of a completed job.
 If `session_search` is unavailable, explain where the user can inspect Hermes'
 session history; do not read an entire state database or substitute the short
 gateway log for a complete draft.

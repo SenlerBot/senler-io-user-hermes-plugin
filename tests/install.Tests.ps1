@@ -57,7 +57,6 @@ try {
 
     & $installer -HermesHome $targetHome -HermesCommand Invoke-SenlerTestHermes
     $installed = Join-Path $targetHome 'plugins\senler-io-user'
-    Assert-True (Test-Path (Join-Path $installed 'plugin.json')) 'Manifest missing.'
     foreach ($relative in @('plugin.yaml', '__init__.py', 'senler_connection.py', 'mcp-server.json')) {
         Assert-True (Test-Path (Join-Path $installed $relative) -PathType Leaf) "Native connection file missing: $relative"
     }
@@ -67,6 +66,9 @@ try {
     Assert-True ((Get-FileHash -LiteralPath $installedIcon).Hash -eq (Get-FileHash -LiteralPath $sourceIcon).Hash) 'Installed logo differs from the source.'
     foreach ($skill in @('senler-io-user', 'senler-io-incoming')) {
         Assert-True (Test-Path (Join-Path $installed "skills\$skill\SKILL.md")) "Skill missing: $skill"
+    }
+    foreach ($module in @('senler_relay.py', 'senler_relay_store.py', 'senler_relay_setup.py')) {
+        Assert-True (Test-Path (Join-Path $installed $module)) "Relay module missing: $module"
     }
     Assert-True ($global:SenlerInstallerTestCalls.Count -eq 2) 'Unexpected number of Hermes calls.'
     Assert-True ($global:SenlerInstallerTestCalls[0].Arguments[1] -eq 'validate') 'Must validate before enabling.'
@@ -99,7 +101,7 @@ try {
     $global:SenlerInstallerTestCalls.Clear()
     $global:SenlerInstallerTestFailure = 'enable'
     Assert-InstallFails $enableHome 'enabling failed'
-    Assert-True (Test-Path (Join-Path $enableHome 'plugins\senler-io-user\plugin.json')) 'Enable failure removed the recoverable package.'
+    Assert-True (Test-Path (Join-Path $enableHome 'plugins\senler-io-user\plugin.yaml')) 'Enable failure removed the recoverable package.'
     Assert-True ($global:SenlerInstallerTestCalls.Count -eq 2) 'Unexpected retry after enable failure.'
     Assert-True ($env:HERMES_HOME -eq 'senler-test-original-home') 'Enable failure leaked HERMES_HOME.'
     Write-Host 'PASS: failed enable reports a recoverable installed package.'

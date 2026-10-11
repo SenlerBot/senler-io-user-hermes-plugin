@@ -1,7 +1,0 @@
-# Reference only: merge this entry into the active Hermes config, never replace it.
-# Use `hermes senler connect` for initial sign-in; canonical defaults are in mcp-server.json.
-mcp_servers:
-  senler-io-user:
-    url: "https://mcp-senler-io-user.senler.io/mcp?auth_mode=oauth"
-    auth: oauth
-    connect_timeout: 300

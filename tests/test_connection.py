@@ -166,7 +166,7 @@ class ConnectionTests(unittest.TestCase):
                 runtime.servers()
 
     def test_native_registration_is_passive_and_exposes_skills_and_connection_cli(self):
-        registered = {"skills": [], "commands": []}
+        registered = {"skills": [], "commands": [], "platforms": [], "hooks": {}}
 
         class Context:
             def register_skill(self, name, path, description=""):
@@ -174,6 +174,12 @@ class ConnectionTests(unittest.TestCase):
 
             def register_cli_command(self, name, **kwargs):
                 registered["commands"].append((name, kwargs))
+
+            def register_platform(self, name, label, **kwargs):
+                registered["platforms"].append((name, label, kwargs))
+
+            def register_hook(self, name, callback):
+                registered["hooks"][name] = callback
 
         spec = importlib.util.spec_from_file_location("senler_native_test_plugin", ROOT / "__init__.py",
                                                     submodule_search_locations=[str(ROOT)])
@@ -183,14 +189,21 @@ class ConnectionTests(unittest.TestCase):
             with patch.object(subprocess, "run", side_effect=AssertionError("CLI invoked during registration")):
                 spec.loader.exec_module(module)
                 module.register(Context())
+            self.assertEqual(set(registered["hooks"]), {"pre_tool_call", "on_session_end"})
+            self.assertIsNone(registered["hooks"]["pre_tool_call"]("terminal", {}, session_id="normal-user-chat"))
+            self.assertIsNone(registered["hooks"]["on_session_end"](completed=True, failed=False, interrupted=False,
+                                                                   platform="cli", session_id="normal-user-chat"))
             self.assertEqual({x[0] for x in registered["skills"]}, {"senler-io-user", "senler-io-incoming"})
             self.assertTrue(all(path.is_file() and description for _, path, description in registered["skills"]))
             self.assertEqual([x[0] for x in registered["commands"]], ["senler"])
+            self.assertEqual([x[0] for x in registered["platforms"]], ["senler-io"])
+            self.assertTrue(registered["platforms"][0][2]["trusted_inbound"])
             parser = argparse.ArgumentParser()
             registered["commands"][0][1]["setup_fn"](parser)
             self.assertEqual(parser.parse_args(["connect"]).senler_action, "connect")
             self.assertTrue(parser.parse_args(["connect", "--reauthorize"]).reauthorize)
             self.assertEqual(parser.parse_args(["check"]).senler_action, "check")
+            self.assertEqual(parser.parse_args(["relay", "status"]).relay_action, "status")
         finally:
             for key in list(sys.modules):
                 if key == spec.name or key.startswith(spec.name + "."):

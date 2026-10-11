@@ -133,6 +133,8 @@ def configure_parser(parser):
     setup = actions.add_parser("connect", help="Sign in to Senler using the bundled MCP connection")
     setup.add_argument("--reauthorize", action="store_true", help="Start a fresh Senler OAuth sign-in")
     actions.add_parser("check", help="Check the existing Senler MCP connection")
+    from .senler_relay_setup import configure_parser as relay_parser
+    relay_parser(actions.add_parser("relay", help="Configure outgoing Senler event connections"))
 
 
 def handle_command(args):
@@ -141,6 +143,9 @@ def handle_command(args):
 
     runtime = NativeRuntime(get_hermes_home(), load_config_readonly)
     try:
+        if args.senler_action == "relay":
+            from .senler_relay_setup import handle_command as relay_command
+            return relay_command(args)
         if args.senler_action == "check":
             return check(runtime)
         return connect(runtime, reauthorize=args.reauthorize)

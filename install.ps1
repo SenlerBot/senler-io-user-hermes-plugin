@@ -16,10 +16,6 @@ function Invoke-HermesChecked {
 }
 
 $packageRoot = $PSScriptRoot
-$manifest = Get-Content -LiteralPath (Join-Path $packageRoot 'plugin.json') -Raw | ConvertFrom-Json
-if ($manifest.name -ne 'senler-io-user') {
-    throw 'This installer only installs the senler-io-user package.'
-}
 
 if (-not $HermesHome) {
     if ($env:HERMES_HOME) {
@@ -41,7 +37,7 @@ if (Test-Path -LiteralPath $destination) {
     throw "Plugin directory already exists: $destination. Existing files were preserved. See README.md for updating."
 }
 
-$packageFiles = @('plugin.yaml', 'plugin.json', '__init__.py', 'senler_connection.py', 'mcp-server.json', 'LICENSE', 'README.md', 'assets', 'skills', 'docs', 'examples')
+$packageFiles = @('plugin.yaml', '__init__.py', 'senler_connection.py', 'senler_relay.py', 'senler_relay_store.py', 'senler_relay_setup.py', 'senler_relay_actions.py', 'mcp-server.json', 'LICENSE', 'README.md', 'assets', 'skills', 'docs')
 foreach ($relative in $packageFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $packageRoot $relative))) {
         throw "Incomplete package: $relative is missing. Extract the entire ZIP first."
