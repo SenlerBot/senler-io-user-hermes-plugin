@@ -1,6 +1,96 @@
-![Senler.io](assets/icon.svg)
+![Senler.io for Hermes Agent](assets/catalog-banner.png)
 
-# Senler.io User для Hermes Agent
+# Senler.io User for Hermes Agent
+
+Connect your Senler.io account to Hermes through MCP OAuth and automate selected
+webhook events with an outbound Relay connection. The MCP address is bundled;
+each user signs in to their own account. A public IP, inbound port or tunnel is
+not required for Relay.
+
+Version **0.4.1** is a preview. The maintainer has confirmed installation and
+in-chat sign-in on native Windows Desktop. Automated tests cover connection,
+installation and Relay behavior; a real Senler event workflow still needs its
+own end-to-end check. See [verification details](docs/packaging.md).
+
+## Quick start
+
+Use a current Hermes installation with native plugins, MCP OAuth, in-chat
+connection management, plugin platforms and the Relay transport. Install in the
+same Hermes instance and profile that executes your agent. Git is required for
+installation from this repository.
+
+```sh
+hermes plugins install SenlerBot/senler-io-user-hermes-plugin --no-enable
+hermes plugins enable senler-io-user
+```
+
+Open a new Hermes chat and ask **"Connect Senler"**. Complete sign-in using the
+native Hermes authorization card. If in-chat connection management is unavailable,
+open Desktop's MCP connections, select the prepared `senler-io-user` entry and
+choose **Authorize**. The terminal alternative is `hermes senler connect`.
+
+Then try **"List my Senler projects and their IDs. Do not change anything."**
+To set up automation, name the project, event types and intended actions, for
+example **"Process incoming messages in my Support project and draft replies.
+Do not send them."** Hermes creates or reuses the requested subscription; Senler
+activates it after the connection check succeeds. The Hermes gateway must remain
+running for background processing, and Senler API/User MCP must support Hermes
+Relay subscriptions. Gateway proxy mode and multiplexed profiles are not supported.
+
+The catalog submission is pending; installation from this repository works
+independently of a catalog listing. Updates use `hermes plugins update senler-io-user`.
+
+## Connections, permissions and local data
+
+- **Network:** the configured MCP endpoint is
+  `https://mcp-senler-io-user.senler.io/mcp?auth_mode=oauth`. Hermes owns OAuth,
+  token storage and refresh. The plugin neither reads OAuth token files nor
+  implements its own login client. Senler access follows the signed-in user's
+  permissions. Automation also connects by WSS to the Relay address returned
+  by Senler; plain WS is accepted only on localhost for development.
+- **User-requested setup:** `senler_connect` prepares the active profile's MCP
+  entry through Hermes's configuration APIs. Relay setup enables its platform
+  in the same profile. Existing compatible MCP settings are preserved. Importing
+  or enabling the plugin does not start sign-in, create a subscription or send
+  a customer message.
+- **Background execution:** the `senler-io` platform runs inside the Hermes
+  gateway after the operator configures automation. Its authenticated events
+  use `trusted_inbound` and bypass Hermes's user-pairing/allowlist flow. The
+  adapter checks the saved project, subscription and event selection, disables
+  gateway commands, and treats customer content as untrusted input. Saved
+  operator instructions determine permitted actions; sending a reply requires
+  an explicit send policy or direct request.
+- **Stored data:** the active Hermes profile contains `senler-io-relay.sqlite3`
+  and its lock/journal files. The SQLite database stores subscription-specific
+  Relay credentials, operator instructions, event payloads and result reports.
+  It is not encrypted by the plugin; protect the profile directory and backups.
+  Event runs also create normal Hermes sessions. Event content is processed by
+  the model provider selected in Hermes, and result reports of up to 16,000
+  characters are sent back to Senler. The gateway log may contain a short
+  preview. These workflow reports are not optional analytics; the plugin adds
+  no separate telemetry.
+- **Commands:** the terminal connection helper invokes Hermes's own MCP CLI
+  using the same Python interpreter and profile. The bundled PowerShell scripts
+  invoke local Hermes commands for installation or Relay setup; Relay credentials
+  are passed through JSON stdin, not command-line arguments. The plugin reads its
+  own bundled settings/skills, its SQLite state and the profile configuration
+  through Hermes APIs. It does not replace Hermes core code or update itself.
+- **Stopping and removing:** pause the local processor and disable its Senler
+  subscription before removal. Removing the plugin does not revoke MCP access
+  or subscription credentials, and does not erase the profile's Relay database
+  or Hermes sessions. Review uncertain actions before retrying interrupted jobs;
+  the plugin does not promise exactly-once execution for arbitrary MCP writes.
+
+Registered capabilities: one tool (`senler_connect`), two hooks (`pre_tool_call`,
+`on_session_end`), two skills (`senler-io-user`, `senler-io-incoming`), the `senler`
+CLI command and the `senler-io` platform. No plugin-specific Python dependencies,
+environment secrets, Desktop JavaScript, or standalone background service are
+installed. The command and skill descriptions are in English; detailed Windows
+instructions below are in Russian. Source code is licensed under MIT.
+
+## Русская инструкция
+
+### Senler.io User для Hermes Agent
 
 Плагин содержит настройки подключения к пользовательскому MCP-серверу Senler.io,
 подключение из чата и два skill: работу с User MCP и обработку входящих. Адрес сервера
@@ -9,8 +99,10 @@
 
 Версия 0.4.1 — предварительный выпуск с подключением Senler из чата Hermes.
 Вебхук типа Hermes создаётся без URL: Senler выдаёт адрес подключения,
-плагин подключается к нему и подписка включается после автоматической проверки. Сквозной вход и обработку в настоящем Hermes проверяет
-владелец установки. Новые возможности требуют соответствующего обновления
+плагин подключается к нему и подписка включается после автоматической проверки.
+Владелец установки подтвердил установку и вход из чата Windows Desktop;
+обработка настоящего события требует отдельной проверки.
+Новые возможности требуют соответствующего обновления
 Senler API и User MCP; ZIP не обновляет серверы Senler.
 
 ## Установка из GitHub на Windows
