@@ -113,6 +113,10 @@ def before_tool(tool_name, args, **kwargs):
         run.require_active()
     except ValueError as error:
         return block(str(error))
+    if tool_name in {"tool_search", "tool_describe"}:
+        # These read Hermes's session-scoped catalogue. tool_call itself is NOT
+        # allowed: the native executor must unwrap and check each real MCP call.
+        return
     if not tool_name.startswith(MCP_PREFIX):
         return block("Use the connected Senler MCP for this background event")
     method = args.get("method_name") if tool_name == MCP_PREFIX + "execute" else tool_name[len(MCP_PREFIX):]

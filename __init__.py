@@ -22,15 +22,18 @@ def relay_available():
 def register(ctx):
     from .senler_chat import CONNECT_SCHEMA, prepare_connection
     from .senler_relay_actions import before_tool, on_session_end
+    from .senler_relay_setup import RELAY_SCHEMA, manage_relay
     root = Path(__file__).parent
     ctx.register_tool(
         name="senler_connect", toolset="senler-io-user", schema=CONNECT_SCHEMA,
         handler=prepare_connection, emoji="🔗",
     )
+    ctx.register_tool(name="senler_relay", toolset="senler-io-user", schema=RELAY_SCHEMA,
+                      handler=manage_relay, emoji="🔔")
     ctx.register_hook("pre_tool_call", before_tool)
     ctx.register_hook("on_session_end", on_session_end)
     skills = {
-        "senler-io-user": "Connect Senler.io, work with projects and dialogs through User MCP, and set up webhook workflows.",
+        "senler-io-user": "Connect Senler.io; subscribe to incoming messages or other events; monitor dialogs and notify the operator when attention is needed.",
         "senler-io-incoming": "Process a supplied Senler.io webhook event according to the operator's configured workflow.",
     }
     for name, description in skills.items():

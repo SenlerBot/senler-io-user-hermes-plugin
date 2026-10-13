@@ -656,6 +656,17 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(late.run(self.actions.before_tool, tool, args, session_id="background")["action"], "block")
         self.assertIsNone(self.actions.before_tool(tool, args, session_id="interactive"))
 
+    async def test_deferred_discovery_is_allowed_but_cannot_bypass_mcp_or_pauses(self):
+        row = await self.start_attempt()
+        with self.actions.processing_attempt(self.adapter, row):
+            for name in ["tool_search", "tool_describe", "mcp__senler_io_user__search"]:
+                self.assertIsNone(self.actions.before_tool(name, {}))
+            for name in ["tool_call", "terminal", "senler_relay", "mcp__other__execute"]:
+                self.assertEqual(self.actions.before_tool(name, {})["action"], "block")
+            self.store.pause(self.id)
+            for name in ["tool_search", "tool_describe", "mcp__senler_io_user__search"]:
+                self.assertEqual(self.actions.before_tool(name, {})["action"], "block")
+
     async def test_late_worker_cannot_borrow_the_next_events_permission(self):
         old = await self.start_attempt("old")
         entered, release = threading.Event(), threading.Event()

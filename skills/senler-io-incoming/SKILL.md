@@ -18,6 +18,11 @@ exposed, search with concise Russian keywords, inspect the schema with
 `describe_method`, then execute an exact returned method. Otherwise use the
 exposed individual tools. `diagnose_access`, when available, can explain a
 missing method; it cannot prove membership in a project or grant more rights.
+When Hermes exposes tools on demand, first use its `tool_search`, `tool_describe`
+and `tool_call` bridge, then Senler's method search. The bridge stays scoped to
+this background session's Senler tools. Use one MCP invocation per `tool_call`.
+Do not write diagnostic scripts or open
+another MCP client. A blocked or missing tool is not permission to bypass it.
 If OAuth or a required method is unavailable, report that failure and stop the
 dependent action. Do not read token files or change the connection from an event.
 
@@ -64,7 +69,14 @@ freshness rules from the operator. The receiver separately enforces server reten
 
 Use the operator's configured instruction to classify the request, prepare a
 draft, update an allowed field or send an authorized reply. Without an explicit
-send policy or a direct operator request, return a draft without sending it.
+send policy or a direct operator request, do not send a customer reply. A request
+to monitor and notify is a classification task; it does not require a reply draft.
+When the adapter supplies a notification output contract, follow it exactly:
+ordinary/non-actionable events use `notify: false`; important events use
+`notify: true` and a short summary explaining why the operator should look.
+Do not emit intermediate reports, choose a notification recipient, invoke local
+setup tools, or deliver the summary yourself. The plugin queues the final decision
+only after processing succeeds; failures are visible in event/status history.
 For unattended runs, an unresolved approval or ambiguous recipient means stop
 that action and report the reason through the configured result channel.
 

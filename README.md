@@ -7,7 +7,7 @@ webhook events with an outbound Relay connection. The MCP address is bundled;
 each user signs in to their own account. A public IP, inbound port or tunnel is
 not required for Relay.
 
-Version **0.4.1** is a preview. The maintainer has confirmed installation and
+Version **0.5.0** is a preview. The maintainer has confirmed installation and
 in-chat sign-in on native Windows Desktop. Automated tests cover connection,
 installation and Relay behavior; a real Senler event workflow still needs its
 own end-to-end check. See [verification details](docs/packaging.md).
@@ -37,6 +37,18 @@ activates it after the connection check succeeds. The Hermes gateway must remain
 running for background processing, and Senler API/User MCP must support Hermes
 Relay subscriptions. Gateway proxy mode and multiplexed profiles are not supported.
 
+For monitoring, ask **"Watch incoming messages in Support and notify me in my
+connected Telegram chat only when I need to intervene. Do not reply to customers."**
+Hermes uses `senler_relay` for local setup and native MCP tools for Senler. The
+recipient is resolved before subscription setup; a plain test message confirms
+delivery. Quiet events produce no notification. Any selected event type can use this.
+
+**Desktop/TUI:** plain notifications to an arbitrary local chat are not supported.
+For "notify me here", select a connected messaging channel if the current surface
+cannot receive messages. The plugin reports this before creating a monitor. It
+does not silently use another chat or start a second agent turn. Connection,
+event processing and notification delivery are checked separately.
+
 The catalog submission is pending; installation from this repository works
 independently of a catalog listing. Updates use `hermes plugins update senler-io-user`.
 
@@ -49,7 +61,8 @@ independently of a catalog listing. Updates use `hermes plugins update senler-io
   permissions. Automation also connects by WSS to the Relay address returned
   by Senler; plain WS is accepted only on localhost for development.
 - **User-requested setup:** `senler_connect` prepares the active profile's MCP
-  entry through Hermes's configuration APIs. Relay setup enables its platform
+  entry through Hermes's configuration APIs. `senler_relay` manages the local
+  subscription, processing policy and notification recipient. Setup enables its platform
   in the same profile. Existing compatible MCP settings are preserved. Importing
   or enabling the plugin does not start sign-in, create a subscription or send
   a customer message.
@@ -62,7 +75,11 @@ independently of a catalog listing. Updates use `hermes plugins update senler-io
   an explicit send policy or direct request.
 - **Stored data:** the active Hermes profile contains `senler-io-relay.sqlite3`
   and its lock/journal files. The SQLite database stores subscription-specific
-  Relay credentials, operator instructions, event payloads and result reports.
+  Relay credentials, operator instructions, event payloads, result reports and
+  notification recipients. At most 1,000 pending notifications are retained for
+  seven days. Latest delivery/test receipts are stored per subscription. A saved
+  final decision is sent through the selected native Hermes messaging adapter;
+  no additional model call is used for notification delivery.
   It is not encrypted by the plugin; protect the profile directory and backups.
   Event runs also create normal Hermes sessions. Event content is processed by
   the model provider selected in Hermes, and result reports of up to 16,000
@@ -81,7 +98,7 @@ independently of a catalog listing. Updates use `hermes plugins update senler-io
   or Hermes sessions. Review uncertain actions before retrying interrupted jobs;
   the plugin does not promise exactly-once execution for arbitrary MCP writes.
 
-Registered capabilities: one tool (`senler_connect`), two hooks (`pre_tool_call`,
+Registered capabilities: two tools (`senler_connect`, `senler_relay`), two hooks (`pre_tool_call`,
 `on_session_end`), two skills (`senler-io-user`, `senler-io-incoming`), the `senler`
 CLI command and the `senler-io` platform. No plugin-specific Python dependencies,
 environment secrets, Desktop JavaScript, or standalone background service are
@@ -97,7 +114,9 @@ instructions below are in Russian. Source code is licensed under MIT.
 и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
 Данные и действия доступны с правами этого пользователя.
 
-Версия 0.4.1 — предварительный выпуск с подключением Senler из чата Hermes.
+Версия 0.5.0 — предварительный выпуск с настройкой подписки из чата и уведомлениями
+о событиях, требующих внимания. Hermes использует инструмент `senler_relay`;
+самостоятельно писать Python-скрипты для MCP или настраивать Relay через консоль не нужно.
 Вебхук типа Hermes создаётся без URL: Senler выдаёт адрес подключения,
 плагин подключается к нему и подписка включается после автоматической проверки.
 Владелец установки подтвердил установку и вход из чата Windows Desktop;
@@ -245,11 +264,26 @@ Hermes сообщает, что обработчик остановлен лок
 уже отправленное внешнее действие может завершиться. Сохранённый отчёт доставляется
 в Senler даже на локальной паузе, без возобновления обработки событий.
 
-Черновик сохраняется в сессии обработки Hermes и передаётся в историю подписки Senler (до 16 000 символов). Чтобы увидеть результаты,
+Результат сохраняется в сессии обработки Hermes и передаётся в историю подписки Senler (до 16 000 символов). Чтобы увидеть результаты,
 попросите: «Покажи последние черновики обработки Senler проекта „Учебный“».
 Плагин помогает найти сохранённые ответы в истории сессий; они не появляются
 автоматически в исходном чате и не сохраняются как черновики в Senler.
 Журнал gateway содержит только короткое начало ответа.
+
+Для уведомлений попросите: «Следи за входящими проекта „Учебный“ и присылай кратко
+в мой подключённый Telegram, только если требуется моё внимание. Клиентам не отвечай».
+Hermes уточнит получателя, сохранит правило и проверит доставку тестовым сообщением.
+Обычные события останутся без уведомлений. Для других событий действуют их собственные
+правила. «Присылай сюда» поддерживается для чата в подключённом мессенджере.
+Для произвольного чата Desktop/TUI Hermes сообщит об ограничении до создания подписки
+и предложит выбрать подключённый канал.
+
+Статус различает сохранённые настройки, свежий сигнал Relay, итог обработки и
+подтверждение доставки уведомления. При недоступном канале и подтверждённом ограничении
+частоты повторяется готовый текст, без нового задания модели. При неизвестном исходе
+отправки автоматического повтора нет: сначала нужно проверить чат получателя.
+Локальная пауза сохраняет доставку уже подготовленных уведомлений. Смена или отключение
+получателя удаляет ещё не отправленные уведомления старому адресату.
 
 Пакет не запускает listener, не создаёт подписки, не отправляет сообщения при
 установке и не добавляет фоновый опрос диалогов.

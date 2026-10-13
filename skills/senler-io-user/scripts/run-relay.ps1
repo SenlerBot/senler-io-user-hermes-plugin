@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('identity', 'configure', 'status', 'instructions', 'update-instructions', 'pause', 'resume', 'remove')][string]$Action,
+    [ValidateSet('identity', 'configure', 'status', 'instructions', 'update-instructions', 'pause', 'resume', 'remove', 'resolve-notification-target', 'test-notification', 'notification-targets', 'update-notification-target', 'resolve-notification')][string]$Action,
     [string]$HermesCommand = 'hermes',
     [switch]$EnableAutomation,
     [Parameter(ValueFromPipeline = $true)][string]$InputJson
@@ -15,7 +15,7 @@ end {
     $arguments = @('senler', 'relay', $Action)
     if ($EnableAutomation) { $arguments += '--enable-automation' }
     $payload = $jsonParts -join "`n"
-    if ($Action -notin @('identity', 'status') -and -not $payload) {
+    if ($Action -notin @('identity', 'status', 'notification-targets') -and -not $payload) {
         throw 'Pass the relay JSON through stdin; never place credentials in command arguments.'
     }
     $previousEncoding = $OutputEncoding

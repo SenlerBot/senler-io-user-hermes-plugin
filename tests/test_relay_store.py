@@ -1,17 +1,21 @@
 import importlib.util
+import importlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
+import sys
 import threading
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("senler_relay_store", ROOT / "senler_relay_store.py")
-store_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(store_module)
+spec = importlib.util.spec_from_file_location("senler_store_tests", ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
+package = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = package
+spec.loader.exec_module(package)
+store_module = importlib.import_module(spec.name + ".senler_relay_store")
 
 
 class RelayStoreTests(unittest.TestCase):

@@ -32,6 +32,10 @@ try {
     $null = $edit | & $wrapper update-instructions -HermesCommand 'Invoke-SenlerRelayTest'
     Assert-True (($global:RelayTestArgs -join ' ') -eq 'senler relay update-instructions') 'Instruction editing unexpectedly required reconfiguration.'
     Assert-True ($global:RelayTestInput.Trim() -eq $edit.Trim()) 'Edited Unicode instructions changed.'
+    $null = & $wrapper notification-targets -HermesCommand 'Invoke-SenlerRelayTest'
+    Assert-True (($global:RelayTestArgs -join ' ') -eq 'senler relay notification-targets') 'Target listing incorrectly requires stdin.'
+    $null = '{"target":"telegram:12345"}' | & $wrapper resolve-notification-target -HermesCommand 'Invoke-SenlerRelayTest'
+    Assert-True (($global:RelayTestArgs -join ' ') -eq 'senler relay resolve-notification-target') 'Notification resolution was not passed to Hermes.'
     $global:RelayTestExit = 2
     $failed = $false
     try { $null = & $wrapper status -HermesCommand 'Invoke-SenlerRelayTest' } catch { $failed = $true }

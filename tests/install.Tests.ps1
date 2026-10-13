@@ -57,7 +57,7 @@ try {
 
     & $installer -HermesHome $targetHome -HermesCommand Invoke-SenlerTestHermes
     $installed = Join-Path $targetHome 'plugins\senler-io-user'
-    foreach ($relative in @('plugin.yaml', '__init__.py', 'senler_connection.py', 'senler_chat.py', 'mcp-server.json')) {
+    foreach ($relative in @('plugin.yaml', '__init__.py', 'senler_connection.py', 'senler_chat.py', 'senler_relay_setup.py', 'senler_notifications.py', 'mcp-server.json')) {
         Assert-True (Test-Path (Join-Path $installed $relative) -PathType Leaf) "Native connection file missing: $relative"
     }
     $installedIcon = Join-Path $installed 'assets\icon.svg'

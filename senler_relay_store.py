@@ -10,11 +10,15 @@ import time
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+from .senler_notifications import NotificationOutbox, MAX_NOTIFICATIONS, validate_target
+
 PLATFORM = "senler-io"
 MAX_PENDING = 1000
 MAX_BYTES = 131072
 MAX_REPORT_CHARS = 16000
 RETENTION = 7 * 86400
+UNSET = object()
+CONNECTION_FIELDS = {"webhook_id", "project_id", "relay_url", "gateway_id", "gateway_secret", "events", "revision"}
 
 
 def connection_identity(config):
@@ -22,8 +26,7 @@ def connection_identity(config):
 
 
 def validate_connection(data):
-    required = {"webhook_id", "project_id", "relay_url", "gateway_id", "gateway_secret", "events", "revision"}
-    if not isinstance(data, dict) or set(data) != required:
+    if not isinstance(data, dict) or set(data) != CONNECTION_FIELDS:
         raise ValueError("Expected the complete Hermes connection response from Senler MCP")
     if not isinstance(data["webhook_id"], str) or not re.fullmatch(r"[a-f0-9]{24}", data["webhook_id"]):
         raise ValueError("Invalid webhook ID")
@@ -64,7 +67,11 @@ class RelayStore:
                 CREATE INDEX IF NOT EXISTS inbox_pending ON inbox(state, created);
                 CREATE INDEX IF NOT EXISTS inbox_subscription_reporting ON inbox(subscription, state, reported, updated, event_id);
                 CREATE INDEX IF NOT EXISTS inbox_expiry ON inbox(state, updated);
+                CREATE INDEX IF NOT EXISTS inbox_subscription_result ON inbox(subscription,state,updated);
+                CREATE TABLE IF NOT EXISTS relay_health (
+                    subscription TEXT PRIMARY KEY, active INTEGER NOT NULL, revision INTEGER NOT NULL, observed REAL NOT NULL);
             """)
+            NotificationOutbox.install(db)
             db.execute("BEGIN IMMEDIATE")
             if "attempt_id" not in {row["name"] for row in db.execute("PRAGMA table_info(inbox)")}:
                 db.execute("ALTER TABLE inbox ADD COLUMN attempt_id TEXT")
@@ -103,7 +110,7 @@ class RelayStore:
             raise ValueError("Another Hermes gateway already owns this Senler inbox") from None
         return lock
 
-    def configure(self, connection, instructions=None, expected_local_revision=None):
+    def configure(self, connection, instructions=None, expected_local_revision=None, notification_target=UNSET):
         connection = validate_connection(connection)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -111,17 +118,28 @@ class RelayStore:
             if (existing[0] if existing else None) != expected_local_revision:
                 raise ValueError("Local subscription changed; reconcile the newer operator settings before configuring")
             previous = json.loads(existing[1]) if existing else {}
+            if previous and connection_identity(previous) != connection_identity(connection):
+                db.execute("DELETE FROM relay_health WHERE subscription=?", (connection["webhook_id"],))
             if instructions is None:
                 instructions = previous.get("instructions")
             if not isinstance(instructions, str) or not 1 <= len(instructions.strip()) <= 8000:
                 raise ValueError("Provide operator instructions (1–8000 characters)")
             connection.update(instructions=instructions.strip())
+            if notification_target is UNSET:
+                notification_target = previous.get("notification_target")
+            if notification_target is not None:
+                connection["notification_target"] = validate_target(notification_target)
+            if previous.get("notification_target") != notification_target:
+                # Pending summaries never move to a new recipient after a rule change.
+                db.execute("DELETE FROM notification_queue WHERE subscription=?", (connection["webhook_id"],))
+                db.execute("DELETE FROM notification_receipts WHERE subscription=?", (connection["webhook_id"],))
             if db.execute("SELECT count(*) FROM subscriptions WHERE id != ?", (connection["webhook_id"],)).fetchone()[0] >= 8:
                 raise ValueError("At most eight Senler subscriptions are supported per Hermes profile")
             db.execute("INSERT INTO subscriptions(id,config,enabled) VALUES (?, ?, 1) ON CONFLICT(id) DO UPDATE SET config=excluded.config, version=version+1",
                        (connection["webhook_id"], json.dumps(connection, ensure_ascii=False)))
             if previous:
                 if (previous["instructions"] != connection["instructions"]
+                        or previous.get("notification_target") != connection.get("notification_target")
                         or connection_identity(previous) != connection_identity(connection)):
                     self._cancel_processing(db, connection["webhook_id"], "Subscription settings changed; review prior actions before retrying")
                 else:
@@ -138,7 +156,7 @@ class RelayStore:
             config = json.loads(row[0])
             if envelope.get("webhook_id") != subscription or envelope.get("project_id") != config["project_id"]:
                 raise ValueError("Received settings do not match the saved subscription")
-            connection = {key: value for key, value in config.items() if key != "instructions"}
+            connection = {key: config[key] for key in CONNECTION_FIELDS}
             connection.update(events=envelope.get("events"), revision=envelope.get("revision"))
             validate_connection(connection)
             if connection["revision"] < config["revision"]:
@@ -186,6 +204,12 @@ class RelayStore:
             return {row["id"]: {**json.loads(row["config"]), "enabled": bool(row["enabled"]), "local_revision": row["version"]}
                     for row in db.execute("SELECT * FROM subscriptions")}
 
+    def observe_control(self, subscription, active, revision):
+        with self.db() as db:
+            db.execute("INSERT INTO relay_health VALUES (?,?,?,?) ON CONFLICT(subscription) DO UPDATE SET "
+                       "active=excluded.active,revision=excluded.revision,observed=excluded.observed",
+                       (subscription, int(active), revision, time.time()))
+
     def instructions(self, subscription):
         with self.db() as db:
             row = db.execute("SELECT config,version,enabled FROM subscriptions WHERE id=?", (subscription,)).fetchone()
@@ -193,7 +217,8 @@ class RelayStore:
                 raise ValueError("Unknown local Senler subscription")
             config = json.loads(row["config"])
             return {"webhook_id": subscription, "project_id": config["project_id"], "events": config["events"],
-                    "instructions": config["instructions"], "local_revision": row["version"], "enabled": bool(row["enabled"])}
+                    "instructions": config["instructions"], "notification_target": config.get("notification_target"),
+                    "local_revision": row["version"], "enabled": bool(row["enabled"])}
 
     def update_instructions(self, subscription, instructions, expected_local_revision):
         if not isinstance(instructions, str) or not 1 <= len(instructions.strip()) <= 8000:
@@ -215,7 +240,26 @@ class RelayStore:
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("UPDATE subscriptions SET enabled=0, version=version+1 WHERE id=?", (subscription,))
+            db.execute("DELETE FROM relay_health WHERE subscription=?", (subscription,))
             self._cancel_processing(db, subscription, "Processing paused by the operator; review prior actions before retrying")
+
+    def update_notification_target(self, subscription, target, expected_local_revision):
+        target = validate_target(target) if target is not None else None
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT config,version FROM subscriptions WHERE id=?", (subscription,)).fetchone()
+            if row is None or type(expected_local_revision) is not int or row["version"] != expected_local_revision:
+                raise ValueError("Local subscription changed; read its current instructions before updating")
+            config = json.loads(row["config"])
+            if config.get("notification_target") != target:
+                self._cancel_processing(db, subscription, "Notification rules changed; review prior actions before retrying")
+                db.execute("DELETE FROM notification_queue WHERE subscription=?", (subscription,))
+                db.execute("DELETE FROM notification_receipts WHERE subscription=?", (subscription,))
+            config.pop("notification_target", None)
+            if target is not None:
+                config["notification_target"] = target
+            db.execute("UPDATE subscriptions SET config=?,version=version+1 WHERE id=?",
+                       (json.dumps(config, ensure_ascii=False), subscription))
 
     def resume(self, subscription, expected_local_revision):
         with self.db() as db:
@@ -227,6 +271,9 @@ class RelayStore:
         with self.db() as db:
             db.execute("DELETE FROM subscriptions WHERE id=?", (subscription,))
             db.execute("DELETE FROM inbox WHERE subscription=?", (subscription,))
+            db.execute("DELETE FROM notification_queue WHERE subscription=?", (subscription,))
+            db.execute("DELETE FROM notification_receipts WHERE subscription=?", (subscription,))
+            db.execute("DELETE FROM relay_health WHERE subscription=?", (subscription,))
 
     def accept(self, config, envelope):
         if (not isinstance(envelope, dict) or envelope.get("webhook_id") != config["webhook_id"]
@@ -270,8 +317,10 @@ class RelayStore:
         return "event"
 
     def recover(self):
+        NotificationOutbox(self).recover()
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
+            db.execute("DELETE FROM relay_health")
             rows = db.execute("SELECT subscription,event_id,attempt_id FROM inbox WHERE state='processing' LIMIT ?",
                               (MAX_PENDING,)).fetchall()
             for row in rows:
@@ -289,6 +338,8 @@ class RelayStore:
                 config = allowed.get(row["subscription"])
                 if not config:
                     continue
+                if config.get("notification_target") and db.execute("SELECT count(*) FROM notification_queue").fetchone()[0] >= MAX_NOTIFICATIONS - 1:
+                    continue  # Leave work pending until the bounded notification queue drains.
                 if config["revision"] != row["revision"]:
                     db.execute("UPDATE inbox SET state='done', failed=1, result='Subscription settings changed before processing', updated=? WHERE subscription=? AND event_id=?",
                                (time.time(), row["subscription"], row["event_id"]))
@@ -357,6 +408,13 @@ class RelayStore:
         if row is None or (error is None and row["state"] != "processing"):
             return
         report = row["result"] or ""
+        if error is None:
+            config_row = db.execute("SELECT config FROM subscriptions WHERE id=?", (subscription,)).fetchone()
+            try:
+                NotificationOutbox.final_result(db, subscription, event_id,
+                                               json.loads(config_row[0]) if config_row else {}, report)
+            except ValueError as exc:
+                error = str(exc)
         if error is not None:
             # Keep the reason first so truncation cannot hide the interruption.
             report = error + ("\n\nPartial Hermes report:\n" + report if report else "")
@@ -389,12 +447,27 @@ class RelayStore:
             # Indexed, bounded retention work, including reports that expired on the server.
             db.execute("DELETE FROM inbox WHERE rowid IN (SELECT rowid FROM inbox WHERE state='done' AND updated < ? ORDER BY updated LIMIT 100)",
                        (time.time() - RETENTION,))
+            NotificationOutbox.cleanup(db)
 
     def status(self):
         configs = self.subscriptions()
+        outbox = NotificationOutbox(self)
         with self.db() as db:
             counts = {row[0]: row[1] for row in db.execute("SELECT subscription,count(*) FROM inbox WHERE state IN ('pending','processing') GROUP BY subscription")}
+            health = {row["subscription"]: dict(row) for row in db.execute("SELECT * FROM relay_health")}
+            last_events = {}
+            for key in configs:
+                row = db.execute("SELECT event_id,failed,updated FROM inbox WHERE subscription=? AND state='done' "
+                                 "ORDER BY updated DESC LIMIT 1", (key,)).fetchone()
+                last_events[key] = ({"event_id": row["event_id"], "status": "failed" if row["failed"] else "completed",
+                                     "at": row["updated"]} if row else None)
         return [{"webhook_id": key, "project_id": value["project_id"], "relay_url": value["relay_url"],
                  "events": value["events"], "revision": value["revision"], "enabled": value["enabled"],
                  "local_revision": value["local_revision"],
+                 "notification_target": value.get("notification_target"), "notifications": outbox.status(key),
+                 "connection": {"active_recently": bool(value["enabled"] and health.get(key, {}).get("active")
+                                  and health[key]["revision"] == value["revision"]
+                                  and 0 <= time.time() - health[key]["observed"] < 15),
+                                "observed_at": health.get(key, {}).get("observed")},
+                 "last_event": last_events[key],
                  "pending": counts.get(key, 0)} for key, value in configs.items()]

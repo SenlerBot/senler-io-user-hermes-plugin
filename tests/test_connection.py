@@ -193,7 +193,7 @@ class ConnectionTests(unittest.TestCase):
                 spec.loader.exec_module(module)
                 module.register(Context())
             self.assertEqual(set(registered["hooks"]), {"pre_tool_call", "on_session_end"})
-            self.assertEqual(set(registered["tools"]), {"senler_connect"})
+            self.assertEqual(set(registered["tools"]), {"senler_connect", "senler_relay"})
             self.assertEqual(registered["tools"]["senler_connect"]["schema"]["parameters"]["properties"], {})
             self.assertIsNone(registered["hooks"]["pre_tool_call"]("terminal", {}, session_id="normal-user-chat"))
             self.assertIsNone(registered["hooks"]["on_session_end"](completed=True, failed=False, interrupted=False,

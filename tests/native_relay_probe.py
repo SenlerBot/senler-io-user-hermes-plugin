@@ -23,7 +23,8 @@ def load(name, path):
     spec=importlib.util.spec_from_file_location(name,path);mod=importlib.util.module_from_spec(spec);sys.modules[name]=mod;spec.loader.exec_module(mod);return mod
 for name,file in [('gateway.platforms.event','event.py'),('gateway.relay.auth','auth.py'),('gateway.relay.descriptor','descriptor.py'),('gateway.relay.ws_transport','ws_transport.py')]:
     load(name,SOURCE/file)
-storemod=load('senler_probe_store',PLUGIN/'senler_relay_store.py')
+load('senler_probe',PLUGIN/'__init__.py')
+storemod=load('senler_probe.senler_relay_store',PLUGIN/'senler_relay_store.py')
 Native=sys.modules['gateway.relay.ws_transport'].WebSocketRelayTransport
 ID='123456789012345678901234';PROJECT='4e576fd4-f48d-4d49-af17-4fda06c82479';KEY='test-key-'+ 'x'*32
 async def send_line(ws, value):

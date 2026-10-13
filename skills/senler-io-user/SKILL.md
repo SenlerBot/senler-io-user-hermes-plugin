@@ -1,6 +1,6 @@
 ---
 name: senler-io-user
-description: Connect Senler.io from chat with Hermes's native authorization card. Work with projects, dialogs, leads and settings through User MCP; connect, check, change or pause automatic processing of Senler events.
+description: Connect Senler.io from chat; subscribe to incoming messages or other events, monitor conversations and notify the operator about situations requiring attention. Work with projects, dialogs and leads through User MCP; configure, inspect, change or pause automatic processing.
 ---
 
 # Senler.io User
@@ -50,6 +50,17 @@ accessible projects and capabilities.
   fails, explain that the user needs to reconnect this MCP server in Hermes.
 - Discover tools from the current session; do not hard-code a Hermes tool prefix
   or a namespaced skill identifier. Use `skills_list` and `skill_view` when needed.
+- There are two discovery layers. If Hermes exposes `tool_search`, find the
+  Senler capability there first, use `tool_describe` for the returned exact tool
+  names, then `tool_call` to invoke them. Already exposed tools can be called
+  directly. Only then search methods inside Senler's own MCP catalog as below.
+  Use one MCP invocation per `tool_call`; Hermes batches hosted connectors,
+  while local MCP entries use its single-tool path.
+- Do not write Python probes, import private Hermes MCP/configuration APIs,
+  read OAuth caches, or spawn another interpreter to discover/call MCP tools.
+  A missing tool is not evidence that OAuth failed. Report whether discovery,
+  authorization or the actual Senler read failed, using the native result.
+  Cancellation or a denied action remains a stop; do not retry it indirectly.
 - When `search` and `execute` are exposed, search first and execute only an exact
   method returned by search. Use `describe_method` when its full schema is needed.
   If individual tools are exposed instead, use those exact tools.
@@ -80,6 +91,8 @@ is still checked by the API; OAuth scope eligibility alone is insufficient.
 
 When the operator asks to process incoming messages or other Senler events,
 read [Hermes Relay setup](references/hermes-relay-setup.md) and complete that workflow.
+This includes requests to watch conversations and notify only when attention is
+needed. Use `senler_relay` for local setup instead of terminal commands or scripts.
 Use `kind=hermes` without a destination URL. The plugin connects outwards to
 Senler, verifies every subscribed event type and the server activates it in the
 same request. Do not ask for a separate enable instruction after a successful
@@ -96,10 +109,15 @@ create a webhook subscription or start a listener.
 
 ## Review processing results
 
-For a Hermes Relay subscription, use `hermes senler relay status` and the
+For a Hermes Relay subscription, use `senler_relay(action="status")` and the
 Hermes-deliveries MCP method for that exact project and saved webhook ID.
 Distinguish durable receipt from completed processing. Never print credentials
 or rerun an event to obtain its result.
+Local status distinguishes recently active Relay control, the last completed or
+failed event, and notification receipts. For notification setup, require the exact
+test ID in `notifications.last_test` with `status: "delivered"`. A queued test,
+enabled configuration or old receipt does not prove current delivery. `uncertain`
+means the receiver may already have the message; inspect before any manual resend.
 
 For the full transcript, use the native Hermes `session_search` in the
 operator's interactive chat with the exact result marker
