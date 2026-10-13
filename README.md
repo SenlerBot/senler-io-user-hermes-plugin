@@ -49,8 +49,10 @@ cannot receive messages. The plugin reports this before creating a monitor. It
 does not silently use another chat or start a second agent turn. Connection,
 event processing and notification delivery are checked separately.
 
-The catalog submission is pending; installation from this repository works
-independently of a catalog listing. Updates use `hermes plugins update senler-io-user`.
+The plugin is listed in the [official Hermes catalog](https://github.com/NousResearch/hermes-agent/blob/main/plugin-catalog/senler-io-user.yaml).
+Catalog installations use the reviewed commit pinned there; newer commits from
+this repository reach the catalog through a separate review. Updates use
+`hermes plugins update senler-io-user`.
 
 ## Connections, permissions and local data
 
@@ -326,15 +328,17 @@ Senler; само удаление пакета не отзывает MCP-дос�
 
 ## Логотип и формат пакета
 
-В `assets/icon.svg` включён исходный логотип Senler из пользовательского
-плагина для Codex. Он отображается в README и копируется при установке.
+В `assets/icon.svg` включена точная копия логотипа кабинета Senler.io из
+`aibot-cabinet/public/senler-logo.svg`: голубой знак со звездой, цвет `#00ADFF`.
+Этот же знак используется в баннере README и копируется при установке.
 Пакет использует нативный `plugin.yaml` и Python-точку входа: они регистрируют
 действие подключения из чата, CLI-команду, skills и платформу Senler Relay.
 
 Изображение карточки в каталоге Hermes задаётся отдельным полем `image` в записи
 этого каталога. Наличие SVG в ZIP само по себе не назначает значок плагину в
-Desktop. Пакет ещё не опубликован
-в каталоге. Подробности проверки и публикации — [docs/packaging.md](docs/packaging.md).
+Desktop. Плагин уже принят в каталог; новые версии и изображения появляются
+там после отдельного обновления записи. Подробности проверки и публикации —
+[docs/packaging.md](docs/packaging.md).
 
 ## Проверки разработчика
 
