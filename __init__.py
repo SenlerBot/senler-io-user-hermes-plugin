@@ -24,11 +24,13 @@ def register(ctx):
     from .senler_relay_actions import before_tool, on_session_end
     from .senler_relay_setup import RELAY_SCHEMA, manage_relay
     root = Path(__file__).parent
+    # Keep local tools separate from the MCP alias "senler-io-user": Hermes
+    # resolves a plugin toolset before an MCP alias with the same name.
     ctx.register_tool(
-        name="senler_connect", toolset="senler-io-user", schema=CONNECT_SCHEMA,
+        name="senler_connect", toolset="senler-io-setup", schema=CONNECT_SCHEMA,
         handler=prepare_connection, emoji="🔗",
     )
-    ctx.register_tool(name="senler_relay", toolset="senler-io-user", schema=RELAY_SCHEMA,
+    ctx.register_tool(name="senler_relay", toolset="senler-io-setup", schema=RELAY_SCHEMA,
                       handler=manage_relay, emoji="🔔")
     ctx.register_hook("pre_tool_call", before_tool)
     ctx.register_hook("on_session_end", on_session_end)

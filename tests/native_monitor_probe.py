@@ -27,6 +27,9 @@ def run(home):
     from tools.registry import registry
     from agent import tool_executor
     import model_tools
+    from hermes_cli.plugins import PluginContext, PluginManager
+    from hermes_cli.plugins_manifest import parse_manifest_file
+    from toolsets import resolve_toolset
     from gateway.config import GatewayConfig, PlatformConfig, Platform
     from gateway.platforms.base import SendResult
 
@@ -36,6 +39,10 @@ def run(home):
     package = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = package
     spec.loader.exec_module(package)
+    manifest = parse_manifest_file(root / "plugin.yaml", root, "user", "")
+    assert manifest is not None
+    manager = PluginManager()
+    package.register(PluginContext(manifest, manager))
     actions = importlib.import_module(spec.name + ".senler_relay_actions")
     store_module = importlib.import_module(spec.name + ".senler_relay_store")
     notifications = importlib.import_module(spec.name + ".senler_notifications")
@@ -44,21 +51,51 @@ def run(home):
     schema = {"name": name, "description": "Senler methods search", "parameters": {
         "type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}
     registry.register(name=name, toolset="mcp-senler-io-user", schema=schema, handler=lambda args, **kw: "{}")
+    registry.register_toolset_alias("senler-io-user", "mcp-senler-io-user")
     foreign = "mcp__other__execute"
     registry.register(name=foreign, toolset="mcp-other", schema={**schema, "name": foreign}, handler=lambda args, **kw: "{}")
-    definitions = [{"type": "function", "function": schema}]
+
+    # Hermes scopes a connected MCP into chat by its bare alias. Register the
+    # plugin too: it previously shadowed that alias, even in the default/all set.
+    helpers = {"senler_connect", "senler_relay"}
+    assert resolve_toolset("senler-io-user") == [name], resolve_toolset("senler-io-user")
+    assert resolve_toolset("mcp-senler-io-user") == [name]
+    assert set(resolve_toolset("senler-io-setup")) == helpers
+    expected = helpers | {name}
+    assert expected <= set(resolve_toolset("all"))
+    assert expected <= model_tools._select_tool_names(None, None, quiet_mode=True)
+
+    selected = ["senler-io-setup", "senler-io-user"]
+
+    def selected_definitions(enabled, disabled=None):
+        return model_tools.get_tool_definitions(enabled_toolsets=enabled, disabled_toolsets=disabled,
+                                                quiet_mode=True, skip_tool_search_assembly=True)
+
+    def definition_names(definitions):
+        return {item["function"]["name"] for item in definitions}
+
+    definitions = selected_definitions(selected)
+    assert definition_names(definitions) == expected, definition_names(definitions)
+    assert definition_names(selected_definitions(["mcp-senler-io-user"])) == {name}
+    assert definition_names(selected_definitions(selected, ["senler-io-user"])) == helpers
+    assert definition_names(selected_definitions(selected, ["mcp-senler-io-user"])) == helpers
+    assert definition_names(selected_definitions(selected, ["senler-io-setup"])) == {name}
+
     found = json.loads(tool_search.dispatch_tool_search({"queries": ["Senler"]}, current_tool_defs=definitions))
     assert name in found["tools"], found
     described = json.loads(tool_search.dispatch_tool_describe({"names": [name]}, current_tool_defs=definitions))
     assert described["tools"][name]["parameters"] == schema["parameters"]
-    agent = SimpleNamespace(enabled_toolsets=["mcp-senler-io-user"], disabled_toolsets=None)
-    with patch.object(model_tools, "get_tool_definitions", return_value=definitions):
-        actual, params, error = tool_executor._unwrap_tool_search_call(agent, "tool_call", {
-            "calls": [{"name": name, "arguments": {"query": "вебхуки"}}]})
-        assert (actual, params, error) == (name, {"query": "вебхуки"}, None)
-        _, _, blocked = tool_executor._unwrap_tool_search_call(agent, "tool_call", {
-            "calls": [{"name": foreign, "arguments": {"query": "forbidden"}}]})
-        assert blocked
+    agent = SimpleNamespace(enabled_toolsets=selected, disabled_toolsets=None)
+    actual, params, error = tool_executor._unwrap_tool_search_call(agent, "tool_call", {
+        "calls": [{"name": name, "arguments": {"query": "вебхуки"}}]})
+    assert (actual, params, error) == (name, {"query": "вебхуки"}, None)
+    _, _, blocked = tool_executor._unwrap_tool_search_call(agent, "tool_call", {
+        "calls": [{"name": foreign, "arguments": {"query": "forbidden"}}]})
+    assert blocked
+    agent.disabled_toolsets = ["senler-io-user"]
+    _, _, blocked = tool_executor._unwrap_tool_search_call(agent, "tool_call", {
+        "calls": [{"name": name, "arguments": {"query": "forbidden"}}]})
+    assert blocked
     token = actions._attempt.set(SimpleNamespace(require_active=lambda: None))
     try:
         assert actions.before_tool("tool_search", {"queries": ["Senler"]}) is None
@@ -100,7 +137,8 @@ def run(home):
     store.accept(config, envelope)
     asyncio.run(outbox.deliver_one(runner))
     sender.send.assert_awaited_once()
-    print("PASS: native discovery/schema/unwrap, Senler-only hook scope, native delivery/thread routing and restart deduplication")
+    print("PASS: native plugin/MCP selection, default/all and disabled sets, discovery/schema/unwrap, "
+          "Senler-only hook scope, native delivery/thread routing and restart deduplication")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ webhook events with an outbound Relay connection. The MCP address is bundled;
 each user signs in to their own account. A public IP, inbound port or tunnel is
 not required for Relay.
 
-Version **0.5.0** is a preview. The maintainer has confirmed installation and
+Version **0.5.1** is a preview. The maintainer has confirmed installation and
 in-chat sign-in on native Windows Desktop. Automated tests cover connection,
 installation and Relay behavior; a real Senler event workflow still needs its
 own end-to-end check. See [verification details](docs/packaging.md).
@@ -53,6 +53,12 @@ The plugin is listed in the [official Hermes catalog](https://github.com/NousRes
 Catalog installations use the reviewed commit pinned there; newer commits from
 this repository reach the catalog through a separate review. Updates use
 `hermes plugins update senler-io-user`.
+
+Version 0.5.1 gives the local setup tools their own `senler-io-setup` toolset so
+they no longer hide the MCP tools under `senler-io-user` (`mcp-senler-io-user`).
+After updating, restart Hermes and its running gateway on the host that executes
+the agent, then open a new chat. This change keeps the saved MCP connection and
+OAuth credentials; it does not require signing in again.
 
 ## Connections, permissions and local data
 
@@ -116,7 +122,7 @@ instructions below are in Russian. Source code is licensed under MIT.
 и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
 Данные и действия доступны с правами этого пользователя.
 
-Версия 0.5.0 — предварительный выпуск с настройкой подписки из чата и уведомлениями
+Версия 0.5.1 — предварительный выпуск с настройкой подписки из чата и уведомлениями
 о событиях, требующих внимания. Hermes использует инструмент `senler_relay`;
 самостоятельно писать Python-скрипты для MCP или настраивать Relay через консоль не нужно.
 Вебхук типа Hermes создаётся без URL: Senler выдаёт адрес подключения,
@@ -292,6 +298,14 @@ Hermes уточнит получателя, сохранит правило и �
 
 ## Обновление
 
+В 0.5.1 исправлен конфликт имён: локальные действия `senler_connect` и `senler_relay`
+получили отдельный набор `senler-io-setup`. MCP по-прежнему называется `senler-io-user`
+и использует набор `mcp-senler-io-user` с коротким именем `senler-io-user`.
+Если вы вручную выбираете наборы инструментов, эти имена относятся к разным
+действиям. Уже добавленный `mcp-senler-io-user` продолжит работать. Настройки
+подключения и сохранённая авторизация остаются прежними; исправление не требует
+повторного входа или правки конфигурации.
+
 Если раньше был настроен HTTP-приёмник из версии 0.3, перед обновлением поставьте
 его вебхук в Senler на паузу и дождитесь завершения выполняющихся заданий.
 Удалите прежний маршрут штатными средствами Hermes. После обновления создайте
@@ -313,12 +327,14 @@ ZIP-копия не имеет Git-источника для `hermes plugins upd
 hermes plugins remove senler-io-user
 ```
 
-После обновления откройте новый чат в нужном профиле и напишите **«Подключи Senler»**.
+После обновления перезапустите Hermes и работающий gateway на компьютере или
+сервере, который выполняет запросы. Переключение MCP в Desktop не перезагружает
+код плагина. Затем откройте новый чат в нужном профиле и напишите **«Подключи Senler»**.
 Сохранённое MCP-подключение будет использовано с его прежними настройками.
 Если плагин выключен, включите его в интерфейсе или командой
 `hermes plugins enable senler-io-user`.
 
-После обновления перезапустите gateway. Настройки Relay и очередь находятся
+Настройки Relay и очередь находятся
 в профиле Hermes и сохраняются при замене файлов плагина. Ручная пауза остаётся
 в силе. Перед полным удалением попросите отключить соответствующие подписки
 Senler; само удаление пакета не отзывает MCP-доступ и ключи подписок.
