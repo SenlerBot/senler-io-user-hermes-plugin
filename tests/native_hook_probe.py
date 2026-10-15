@@ -36,7 +36,7 @@ def load_module(root, path, name):
 def native_method(root, file, owner, name):
     path = source_path(root, file)
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    runner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == owner)
+    runner = tree if owner is None else next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == owner)
     method = next(node for node in runner.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                   and node.name == name)
     namespace = {"asyncio": asyncio, "copy_context": copy_context, "logger": logging.getLogger(__name__),
@@ -126,7 +126,7 @@ async def probe(root):
                     result = tool_pool.submit(threads.propagate_context_to_thread(call)).result(timeout=3)
                 manager.invoke_hook("on_session_end", session_id=label, task_id=label, turn_id=label,
                     platform="senler-io", completed=label != "new", failed=label == "new", interrupted=False)
-                report = asyncio.run_coroutine_threadsafe(case.adapter.send(report_chat, label + " report"), loop).result(timeout=3)
+                report = asyncio.run_coroutine_threadsafe(case.adapter.send(report_chat, label + " report", metadata={"notify": True}), loop).result(timeout=3)
                 return result, report
 
             def delayed_turn():

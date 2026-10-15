@@ -42,7 +42,7 @@ class FakeGatewayBase:
         self.seen = event
         event._gateway_accepted = True
         self.session_end(completed=True, failed=False, interrupted=False, platform="senler-io")
-        await self.send(event.source.chat_id, "Prepared draft")
+        await self.send(event.source.chat_id, "Prepared draft", metadata={"notify": True})
         await self.on_processing_complete(event, Outcome.SUCCESS)
         self._running = False
 
@@ -78,6 +78,7 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.project = str(uuid4())
         connection = {"webhook_id": self.id, "project_id": self.project, "relay_url": "wss://api.example.test/api/hermes-relay/" + self.id,
             "gateway_id": self.id, "gateway_secret": "x" * 40, "events": ["message_new"], "revision": 0}
+        self.connection = connection
         self.store.configure(connection, "Prepare a draft only")
         self.config = self.store.subscriptions()[self.id]
         self.adapter.store = self.store
@@ -237,7 +238,8 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         return SimpleNamespace(text=json.dumps({"kind": kind, "webhook_id": self.id, "project_id": self.project, "revision": 0,
             "events": ["message_new"], "expires_at": "2099-01-01T00:00:00Z", **fields}))
 
-    async def run_reported_event(self, completion, *, output="Operator report", outcome=Outcome.SUCCESS, event_id="reported"):
+    async def run_reported_event(self, completion, *, output="Operator report", outcome=Outcome.SUCCESS,
+                                 event_id="reported", side_messages=()):
         await self.adapter._receive(self.config, self.event("control", active=True))
         await self.adapter._receive(self.config, self.event("event", payload={"event_id": event_id,
             "project_id": self.project, "event_type": "message_new", "data": {}}))
@@ -245,11 +247,16 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         async def handle(event):
             event._gateway_accepted = True
             self.processing_context = copy_context()
+            for text, metadata in side_messages:
+                self.assertFalse((await self.adapter.send(event.source.chat_id, text, metadata=metadata)).success)
             if completion is not None:
                 await asyncio.to_thread(self.actions.on_session_end, platform="senler-io", **completion)
             self.assertEqual(self.store.pending_results(self.id), [], "The hook must not finish the event before report delivery")
-            sent = await self.adapter.send(event.source.chat_id, output)
-            self.assertTrue(sent.success)  # Hermes also delivers model errors as text.
+            if output is not None:
+                sent = await self.adapter.send(event.source.chat_id, output, metadata={"notify": True})
+                self.assertTrue(sent.success)  # Hermes also delivers model errors as text.
+            for text, metadata in side_messages:
+                self.assertFalse((await self.adapter.send(event.source.chat_id, text, metadata=metadata)).success)
             await self.adapter.on_processing_complete(event, outcome)
             self.adapter._running = False
 
@@ -259,6 +266,55 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         result = self.store.pending_results(self.id)[0]
         self.assertEqual(result["event_id"], event_id)
         return result
+
+    async def test_gateway_notices_and_commentary_do_not_corrupt_notification_decisions(self):
+        self.store.configure(self.connection, expected_local_revision=0,
+            notification_target={"platform": "telegram", "chat_id": "operator", "thread_id": None})
+        self.config = self.store.subscriptions()[self.id]
+        for notify in [False, True]:
+            with self.subTest(notify=notify):
+                output = json.dumps({"notify": notify, "summary": "Attention required" if notify else "Ordinary greeting"})
+                row = await self.run_reported_event(
+                    {"completed": True, "failed": False, "interrupted": False}, output=output,
+                    event_id="decision-" + str(notify), side_messages=[
+                        ("📬 No home channel is set for Senler-Io. Type /sethome.", None),
+                        ("Служебная подсказка", {"thread_id": "operator"}),
+                        # An interim JSON identical to the final must not count as delivered.
+                        (output, {"_interim_send": True}),
+                        (output, {"notify": True, "_interim_send": True}),
+                        ("Editable preview", {"notify": True, "expect_edits": True}),
+                        ("Not a native final marker", {"notify": "true"}),
+                        ("Runtime footer", {"notify": False}),
+                    ])
+                self.assertEqual(row["failed"], 0)
+                self.assertEqual(row["result"], output)
+                with self.store.db() as db:
+                    notifications = db.execute("SELECT content FROM notification_queue WHERE event_id=?",
+                                               (row["event_id"],)).fetchall()
+                self.assertEqual(len(notifications), int(notify))
+                if notify:
+                    self.assertEqual(notifications[0]["content"], "Senler\nAttention required\n\nsenler:" + self.id + ":" + row["event_id"])
+                await self.adapter._report_results()
+                report = self.adapter.transports[self.id][1].send_outbound.await_args.args[0]
+                self.assertEqual(report, {"op": "senler_result", "event_id": row["event_id"],
+                    "attempt_id": row["attempt_id"], "result": output, "failed": False})
+
+    async def test_interim_json_cannot_replace_missing_or_invalid_final_decision(self):
+        self.store.configure(self.connection, expected_local_revision=0,
+            notification_target={"platform": "telegram", "chat_id": "operator", "thread_id": None})
+        self.config = self.store.subscriptions()[self.id]
+        for index, output in enumerate([None, "Invalid final response"]):
+            with self.subTest(output=output):
+                row = await self.run_reported_event(
+                    {"completed": True, "failed": False, "interrupted": False}, output=output,
+                    event_id="invalid-" + str(index), side_messages=[
+                        ('{"notify":true,"summary":"Not the final decision"}', {"_interim_send": True})])
+                self.assertEqual(row["failed"], 1)
+                self.assertIn("valid notification decision", row["result"])
+                self.assertNotIn("Not the final decision", row["result"])
+                with self.store.db() as db:
+                    self.assertEqual(db.execute("SELECT count(*) FROM notification_queue").fetchone()[0], 0)
+                await self.adapter._report_results()
 
     async def test_delivered_model_failure_interruption_and_incomplete_turn_are_failed(self):
         for index, (completion, reason) in enumerate([
@@ -311,7 +367,7 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         async def handle(event):
             event._gateway_accepted = True
-            sent = await self.adapter.send(event.source.chat_id, "Checked the dialog. ")
+            sent = await self.adapter.send(event.source.chat_id, "Checked the dialog. ", metadata={"notify": True})
             self.assertTrue(sent.success)
             reopened = type(self.store)(self.temp.name)
             with reopened.db() as db:
@@ -319,9 +375,9 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(saved["state"], "processing")
             self.assertEqual(saved["result"], "Checked the dialog. ")
             self.assertEqual(reopened.pending_results(self.id), [])
-            self.assertTrue((await self.adapter.send(event.source.chat_id, "Updated the lead.")).success)
+            self.assertTrue((await self.adapter.send(event.source.chat_id, "Updated the lead.", metadata={"notify": True})).success)
             reopened.pause(self.id)
-            self.assertFalse((await self.adapter.send(event.source.chat_id, "Late success")).success)
+            self.assertFalse((await self.adapter.send(event.source.chat_id, "Late success", metadata={"notify": True})).success)
             self.actions.on_session_end(platform="senler-io", completed=True, failed=False, interrupted=False)
             await self.adapter.on_processing_complete(event, Outcome.SUCCESS)
             self.adapter._running = False
@@ -344,10 +400,10 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.adapter.current = SimpleNamespace(source=SimpleNamespace(chat_id=chat_id))
         with self.actions.processing_attempt(self.adapter, row):
             with patch.object(self.store, "append_report", side_effect=sqlite3.OperationalError("database is full")):
-                sent = await self.adapter.send(chat_id, "Unsaved text")
+                sent = await self.adapter.send(chat_id, "Unsaved text", metadata={"notify": True})
             self.assertFalse(sent.success)
             self.assertIn("could not save", sent.error)
-            self.assertTrue((await self.adapter.send(chat_id, "Saved retry")).success)
+            self.assertTrue((await self.adapter.send(chat_id, "Saved retry", metadata={"notify": True})).success)
         reopened = type(self.store)(self.temp.name)
         reopened.recover()
         result = reopened.pending_results(self.id)[0]
@@ -367,11 +423,11 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.store.configure(connection, self.config["instructions"])
         new = await self.start_attempt()
         self.assertNotEqual(old["attempt_id"], new["attempt_id"])
-        self.assertFalse((await self.adapter.send(chat_id, "Unbound report")).success)
+        self.assertFalse((await self.adapter.send(chat_id, "Unbound report", metadata={"notify": True})).success)
         with self.actions.processing_attempt(self.adapter, new):
-            late = old_context.run(asyncio.create_task, self.adapter.send(chat_id, "Old report"))
+            late = old_context.run(asyncio.create_task, self.adapter.send(chat_id, "Old report", metadata={"notify": True}))
             self.assertFalse((await late).success)
-            self.assertTrue((await self.adapter.send(chat_id, "New report")).success)
+            self.assertTrue((await self.adapter.send(chat_id, "New report", metadata={"notify": True})).success)
         self.store.finish(self.id, new["event_id"], new["attempt_id"])
         self.assertEqual(self.store.pending_results(self.id)[0]["result"], "New report")
 
@@ -463,7 +519,7 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.pending_results(self.id), [], "A refusal must not overwrite the other attempt's result")
 
     async def test_no_report_can_be_sent_as_a_customer_message_outside_processing(self):
-        result = await self.adapter.send("another-chat", "Unexpected send")
+        result = await self.adapter.send("another-chat", "Unexpected send", metadata={"notify": True})
         self.assertFalse(result.success)
 
     async def test_unstarted_event_retries_the_same_attempt_after_transport_or_replay_failure(self):
@@ -527,7 +583,7 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         async def process(event):
             event._gateway_accepted = True
-            await self.adapter.send(event.source.chat_id, "An action was attempted before interruption")
+            await self.adapter.send(event.source.chat_id, "An action was attempted before interruption", metadata={"notify": True})
             running.set()
             await asyncio.Future()
 
@@ -798,7 +854,7 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
                     contexts.append(copy_context())
                     # Even a completed observer does not keep an ended attempt open.
                     self.actions.on_session_end(platform="senler-io", completed=True, failed=False, interrupted=False)
-                    self.assertTrue((await self.adapter.send(event.source.chat_id, "Already performed")).success)
+                    self.assertTrue((await self.adapter.send(event.source.chat_id, "Already performed", metadata={"notify": True})).success)
                     if stopped:
                         raise ValueError("Stop")
                     await self.adapter.on_processing_complete(event, Outcome.SUCCESS)

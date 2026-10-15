@@ -129,6 +129,13 @@ class SenlerRelayAdapter(BasePlatformAdapter):
     async def send(self, chat_id, content, reply_to=None, metadata=None):
         if self.current is None or chat_id != self.current.source.chat_id:
             return SendResult(success=False, error="No active Senler event")
+        # Native final sends carry notify=True; setup notices do not. Completed
+        # commentary is still interim, even when its text equals the final JSON.
+        # Never acknowledge discarded text: the stream consumer could otherwise
+        # suppress the actual final because it believes that text was delivered.
+        if (not isinstance(metadata, dict) or metadata.get("notify") is not True
+                or metadata.get("_interim_send") or metadata.get("expect_edits")):
+            return SendResult(success=False, error="Senler Relay only accepts final processing reports")
         # This is the operator's processing report. Customer sends use the scoped MCP workflow.
         try:
             message_id = senler_relay_actions.save_report(self, chat_id, str(content))

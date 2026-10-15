@@ -6,6 +6,7 @@ select the delivery mode; completed messages go through the real Senler inbox.
 import argparse
 import asyncio
 from contextlib import suppress
+import json
 from pathlib import Path
 import sys
 from types import MethodType, ModuleType, SimpleNamespace
@@ -46,6 +47,10 @@ async def probe(root):
             setup = native_method(root, "gateway/run_turn_runner.py", "TurnRunner", "_setup_stream_consumer")
             mark_delivered = native_method(root, "gateway/run_turn.py", "GatewayTurnMixin", "_run_agent_mark_streamed_delivery")
             confirm_delivery = native_method(root, "gateway/run_turn.py", "GatewayTurnMixin", "_run_agent_stream_confirmed_final_delivery").__func__
+            final_metadata = native_method(root, "gateway/platforms/base.py", None, "_mark_notify_metadata")
+            notice = native_method(root, "gateway/run_notifications.py", "GatewayNotificationsMixin", "_deliver_platform_notice")
+            notice.__globals__["Platform"].SLACK = "slack"
+            sys.modules["gateway.run"] = SimpleNamespace(_is_slack_ignored_channel=lambda *args: False)
             mark_delivered.__globals__["suppress"] = suppress
             confirm_delivery.__globals__["suppress"] = suppress
             case.adapter.message_len_fn = len
@@ -55,12 +60,23 @@ async def probe(root):
             runner = SimpleNamespace(config=SimpleNamespace(streaming=scfg), _delivery_adapter_for=lambda source: case.adapter)
             runner._build_stream_consumer_config = MethodType(build, runner)
             runner._run_agent_stream_confirmed_final_delivery = confirm_delivery
+            runner._thread_metadata_for_source = lambda source: None
             with patch.object(FakeGatewayBase, "edit_message", native_method(root, "gateway/platforms/base.py",
                               "BasePlatformAdapter", "edit_message"), create=True), \
                     patch.object(FakeGatewayBase, "delete_message", native_method(root, "gateway/platforms/base.py",
                                  "BasePlatformAdapter", "delete_message"), create=True), \
                     patch.object(FakeGatewayBase, "strip_media_directives_for_display", staticmethod(lambda text: text), create=True):
-                for index, (comment, interrupted) in enumerate([(None, False), ("Checked.", False), ("Hello world", False), ("Checked.", True)]):
+                quiet = '{"notify":false,"summary":"Ordinary greeting"}'
+                attention = '{"notify":true,"summary":"Needs attention"}'
+                cases = [("Hello world", None, False), ("Hello world", "Checked.", False),
+                         ("Hello world", "Hello world", False), ("Hello world", "Checked.", True),
+                         (quiet, None, False), (quiet, "Checked.", False), (quiet, quiet, False),
+                         (attention, attention, False)]
+                for index, (final_text, comment, interrupted) in enumerate(cases):
+                    if index == 4:
+                        case.store.configure(case.connection, expected_local_revision=0,
+                            notification_target={"platform": "telegram", "chat_id": "operator", "thread_id": None})
+                        case.config = case.store.subscriptions()[case.id]
                     interim = comment is not None
                     event_id = "stream-" + str(index)
                     row = await case.start_attempt(event_id)
@@ -72,6 +88,8 @@ async def probe(root):
                         progress_queue=None, event_message_id=event_id, _run_still_current=lambda: True,
                         stream_consumer_holder=[None], _status_adapter=None, session_key=event_id)
                     with case.actions.processing_attempt(case.adapter, row):
+                        # The same native path that sent /sethome in the failed event.
+                        await notice(runner, source, "📬 No home channel is set for Senler-Io. Type /sethome.")
                         consumer, deltas, commentary, _ = setup(SimpleNamespace(_ctx=ctx, _runner=runner), "senler-io")
                         assert deltas is None, "Native gateway would feed partial tokens into the durable report"
                         if consumer:
@@ -79,7 +97,7 @@ async def probe(root):
                             task = asyncio.create_task(consumer.run())
                             try:
                                 commentary(comment)
-                                consumer.finish(None if interrupted else "Hello world")
+                                consumer.finish(None if interrupted else final_text)
                                 await asyncio.wait_for(task, 2)
                             finally:
                                 task.cancel()
@@ -87,24 +105,30 @@ async def probe(root):
                         else:
                             assert not interim
                         if not interrupted:
-                            response = {"final_response": "Hello world"}
+                            response = {"final_response": final_text}
                             await mark_delivered(runner, response, ctx)
                             # Native final-send selection decides whether the
                             # complete reply still needs the normal send path.
                             if not response.get("already_sent"):
-                                assert (await case.adapter.send(source.chat_id, response["final_response"])).success
+                                assert (await case.adapter.send(source.chat_id, response["final_response"],
+                                                               metadata=final_metadata(None))).success
+                        await notice(runner, source, "Runtime footer")
                     case.store.finish(case.id, row["event_id"], row["attempt_id"], "Interrupted" if interrupted else None)
                     with case.store.db() as db:
                         saved = db.execute("SELECT result,failed FROM inbox WHERE event_id=?", (event_id,)).fetchone()
                     if interrupted:
-                        assert saved["failed"] == 1 and saved["result"] == "Interrupted\n\nPartial Hermes report:\nChecked.", dict(saved)
+                        assert saved["failed"] == 1 and saved["result"] == "Interrupted", dict(saved)
                     else:
-                        assert saved["failed"] == 0 and saved["result"] == ("Checked." if comment == "Checked." else "") + "Hello world", dict(saved)
+                        assert saved["failed"] == 0 and saved["result"] == final_text, dict(saved)
+                    if index >= 4:
+                        with case.store.db() as db:
+                            notifications = db.execute("SELECT content FROM notification_queue WHERE event_id=?", (event_id,)).fetchall()
+                        assert len(notifications) == int(json.loads(final_text)["notify"]), notifications
             assert scfg.cursor == "▉", "The plugin must not rewrite global streaming settings"
     finally:
         await case.asyncTearDown()
         case.doCleanups()
-    print("Native Hermes streaming: no token previews or cursors in Senler reports; final text delivered once; completed commentary survives interruption")
+    print("Native Hermes notices and streaming: only final text enters Senler reports; identical interim text cannot suppress the final; notification decisions stay valid; interrupted turns stay failed")
 
 
 if __name__ == "__main__":
