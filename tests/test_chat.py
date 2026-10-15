@@ -194,5 +194,107 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(self.config.saved, [])
 
 
+class InitializationTests(unittest.TestCase):
+    def setUp(self):
+        self.config = Config({"plugins": {"enabled": ["senler-io-user"]},
+                              "mcp_servers": {"other": {"command": "keep"}},
+                              "model": {"api_key": "${PROVIDER_KEY}"}})
+        self.state = {}
+        self.ctx = SimpleNamespace(plugin_id="senler-io-user", state=SimpleNamespace(
+            get=self.state.get, set=self.state.__setitem__))
+        modules = patch.dict(sys.modules, {"hermes_cli": SimpleNamespace(config=self.config)})
+        modules.start()
+        self.addCleanup(modules.stop)
+        shell = patch.object(subprocess, "run", side_effect=AssertionError("No OAuth on activation"))
+        shell.start()
+        self.addCleanup(shell.stop)
+
+    def initialize(self):
+        chat.initialize_connection(self.ctx)
+
+    def test_first_enable_prepares_once_and_preserves_other_settings(self):
+        before = copy.deepcopy(self.config.contents["default"])
+        self.initialize()
+        self.initialize()
+        expected = chat.connection_defaults()
+        expected.pop("name")
+        self.assertEqual(self.config.contents["default"], {
+            **before, "mcp_servers": {**before["mcp_servers"], "senler-io-user": expected}})
+        self.assertEqual(self.config.saved, ["default"])
+        self.assertEqual(self.state, {"connection_initialized": True})
+
+    def test_preview_disabled_and_malformed_selection_never_initialize(self):
+        for settings in ({}, {"enabled": []}, {"enabled": ["another"]},
+                         {"enabled": "senler-io-user"}, {"enabled": ["senler-io-user"], "disabled": {}},
+                         {"enabled": ["senler-io-user"], "disabled": ["senler-io-user"]}, []):
+            with self.subTest(settings=settings):
+                self.config.contents["default"]["plugins"] = settings
+                before = copy.deepcopy(self.config.contents)
+                self.initialize()
+                self.assertEqual(self.config.contents, before)
+                self.assertEqual(self.state, {})
+        self.assertEqual(self.config.saved, [])
+
+    def test_path_derived_plugin_id_is_accepted(self):
+        self.ctx.plugin_id = "integrations/senler"
+        self.config.contents["default"]["plugins"]["enabled"] = [self.ctx.plugin_id]
+        self.initialize()
+        self.assertEqual(self.config.saved, ["default"])
+
+    def test_existing_custom_and_disabled_connections_are_preserved(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled):
+                self.state.clear()
+                entry = chat.connection_defaults()
+                entry.pop("name")
+                entry.update(enabled=enabled, connect_timeout=123, tools={"include": ["search"]},
+                             oauth={"scope": "chosen"}, headers={"X-Custom": "${CUSTOM_HEADER}"})
+                self.config.contents["default"]["mcp_servers"]["senler-io-user"] = entry
+                before = copy.deepcopy(self.config.contents)
+                self.initialize()
+                self.assertEqual(self.config.contents, before)
+                self.assertTrue(self.state["connection_initialized"])
+        self.assertEqual(self.config.saved, [])
+
+    def test_removed_connection_stays_removed_until_explicit_request(self):
+        self.initialize()
+        del self.config.contents["default"]["mcp_servers"]["senler-io-user"]
+        self.initialize()
+        self.assertNotIn("senler-io-user", self.config.contents["default"]["mcp_servers"])
+        self.assertEqual(self.config.saved, ["default"])
+        self.assertTrue(chat._prepare(self.config)["created"])
+
+    def test_conflict_is_preserved_and_can_be_retried_after_repair(self):
+        self.config.contents["default"]["mcp_servers"]["senler-io-user"] = {"command": "private-secret"}
+        before = copy.deepcopy(self.config.contents)
+        with self.assertLogs(chat.__name__, level="WARNING") as logs:
+            self.initialize()
+        self.assertNotIn("private-secret", str(logs.output))
+        self.assertEqual(self.config.contents, before)
+        self.assertEqual(self.state, {})
+        del self.config.contents["default"]["mcp_servers"]["senler-io-user"]
+        self.initialize()
+        self.assertTrue(self.state["connection_initialized"])
+
+    def test_failed_config_or_state_write_is_not_marked_complete_or_leaked(self):
+        for target, method in ((self.config, "save_config"), (self.ctx.state, "set")):
+            with self.subTest(method=method), patch.object(target, method, side_effect=OSError("private-secret")):
+                with self.assertLogs(chat.__name__, level="WARNING") as logs:
+                    self.initialize()
+                self.assertNotIn("private-secret", str(logs.output))
+                self.assertEqual(self.state, {})
+        self.initialize()
+        self.assertTrue(self.state["connection_initialized"])
+
+    def test_managed_profile_is_preserved(self):
+        self.config.managed = True
+        before = copy.deepcopy(self.config.contents)
+        with self.assertLogs(chat.__name__, level="WARNING"):
+            self.initialize()
+        self.assertEqual(self.config.contents, before)
+        self.assertEqual(self.config.saved, [])
+        self.assertEqual(self.state, {})
+
+
 if __name__ == "__main__":
     unittest.main()

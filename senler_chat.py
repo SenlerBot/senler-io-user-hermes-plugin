@@ -1,6 +1,7 @@
-"""Prepare the bundled MCP for Hermes's native in-chat authorization card."""
+"""Prepare the bundled MCP on activation or for Hermes's authorization card."""
 
 import json
+import logging
 
 from .senler_connection import NativeRuntime, connection_defaults, existing_connection
 
@@ -31,7 +32,7 @@ def _existing(runtime, defaults):
                          "Review it in Hermes MCP settings; it was preserved.") from None
 
 
-def _prepare(config):
+def _ensure_connection(config):
     defaults = connection_defaults()
     name = defaults["name"]
     # Use the same lock and writer as Hermes. Resolve the home at call time:
@@ -56,6 +57,53 @@ def _prepare(config):
             if existing is None or existing.get("enabled", True) is not True:
                 raise SetupError("Hermes did not save an enabled Senler connection; check this profile's settings.")
 
+    return name, created, existing
+
+
+def _config_api():
+    from hermes_cli import config
+
+    required = ("_CONFIG_LOCK", "require_readable_config_before_write", "load_config_readonly",
+                "save_config", "is_managed")
+    if not all(hasattr(config, name) for name in required):
+        raise SetupError("Update Hermes to use Senler's connection setup.")
+    return config
+
+
+def initialize_connection(ctx):
+    """Add the bundled server once per enabled profile; never run OAuth here."""
+    try:
+        config = _config_api()
+        settings = config.load_config_readonly().get("plugins", {})
+        if not isinstance(settings, dict):
+            return
+        enabled, disabled = settings.get("enabled", []), settings.get("disabled", [])
+        if not isinstance(enabled, list) or not enabled or not isinstance(disabled, list):
+            return
+        names = (ctx.plugin_id, "senler-io-user")
+        # Native registration also runs in validation previews. Only an actual
+        # opt-in in the current profile authorizes preparing its connection.
+        if (not any(name in enabled for name in names)
+                or any(name in disabled for name in names)):
+            return
+        state = ctx.state
+        if state.get("connection_initialized", False) is True:
+            return
+        _ensure_connection(config)
+        # Removing a server after setup is intentional. Later plugin loads must
+        # not recreate it; an explicit senler_connect call can restore it.
+        state.set("connection_initialized", True)
+    except Exception:
+        # Config/state exceptions may contain unrelated credentials. Keep the
+        # plugin usable so the interactive setup can explain or retry safely.
+        logging.getLogger(__name__).warning(
+            "Could not automatically prepare Senler's MCP connection. "
+            "Open an interactive Hermes chat and ask to connect Senler."
+        )
+
+
+def _prepare(config):
+    name, created, existing = _ensure_connection(config)
     actions = ["authorize"]
     if existing.get("enabled", True) is False:
         actions.insert(0, "enable")
@@ -89,14 +137,8 @@ def prepare_connection(args, **kwargs):
 
         if connection_surface() != CARD or _attempt.get() is not None:
             return json.dumps({"error": "Open an interactive Hermes chat and ask to connect Senler there."})
-        from hermes_cli import config
-
-        # Don't swallow older API gaps and fall back to editing YAML ourselves.
-        required = ("_CONFIG_LOCK", "require_readable_config_before_write", "load_config_readonly",
-                    "save_config", "is_managed")
-        if not all(hasattr(config, name) for name in required):
-            return json.dumps({"error": "Update Hermes to use Senler's in-chat connection setup."})
-        return json.dumps(_prepare(config), ensure_ascii=False)
+        # Don't fall back to editing YAML ourselves on unsupported Hermes APIs.
+        return json.dumps(_prepare(_config_api()), ensure_ascii=False)
     except ImportError:
         return json.dumps({"error": "Update Hermes to use Senler's in-chat connection setup."})
     except SetupError as exc:

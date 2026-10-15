@@ -11,6 +11,10 @@ accessible projects and capabilities.
 
 ## Connection and discovery
 
+- First activation of the enabled plugin prepares `senler-io-user` in this
+  profile's Connections / MCP automatically. This does not prove authorization
+  or tool availability. Existing settings are preserved; a manually removed
+  connection can be restored on the user's request with `senler_connect`.
 - In the operator's interactive chat, use `senler_connect` with no arguments
   when they ask to connect Senler or request work that needs a missing/expired
   Senler connection. This also applies to "process incoming messages": finish

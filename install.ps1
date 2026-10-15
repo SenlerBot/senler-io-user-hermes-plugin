@@ -66,9 +66,9 @@ try {
         throw "Files are installed at $destination, but enabling failed. Retry 'hermes plugins enable senler-io-user' in the same Hermes home. $($_.Exception.Message)"
     }
     Write-Host "Installed: $destination"
-    Write-Host 'Next: open a new Hermes chat in this profile and ask: Connect Senler. Complete the native authorization card.'
+    Write-Host 'Next: when Hermes loads the enabled plugin, senler-io-user is prepared in Connections / MCP. Select Authorize, or ask Connect Senler in a new chat.'
     Write-Host 'Terminal alternative: hermes senler connect. The MCP address is bundled in the plugin.'
-    Write-Host 'The installer did not configure an MCP connection or any webhook.'
+    Write-Host 'No webhook subscription or authorization was performed by the installer.'
 } finally {
     [Environment]::SetEnvironmentVariable('HERMES_HOME', $previousHermesHome, 'Process')
     if (Test-Path -LiteralPath $staging) {

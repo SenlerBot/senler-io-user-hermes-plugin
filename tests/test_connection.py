@@ -165,7 +165,7 @@ class ConnectionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runtime.servers()
 
-    def test_native_registration_is_passive_and_exposes_skills_and_connection_cli(self):
+    def test_native_registration_exposes_skills_and_connection_cli_without_launching_commands(self):
         registered = {"skills": [], "commands": [], "platforms": [], "hooks": {}, "tools": {}}
 
         class Context:

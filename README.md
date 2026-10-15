@@ -7,8 +7,9 @@ webhook events with an outbound Relay connection. The MCP address is bundled;
 each user signs in to their own account. A public IP, inbound port or tunnel is
 not required for Relay.
 
-Version **0.5.1** is a preview. The maintainer has confirmed installation and
-in-chat sign-in on native Windows Desktop. Automated tests cover connection,
+Version **0.5.2** is a preview. The maintainer previously confirmed installation and
+in-chat sign-in on native Windows Desktop. The new automatic MCP preparation still
+needs a Desktop UI check. Automated tests cover connection,
 installation and Relay behavior; a real Senler event workflow still needs its
 own end-to-end check. See [verification details](docs/packaging.md).
 
@@ -24,10 +25,11 @@ hermes plugins install SenlerBot/senler-io-user-hermes-plugin --no-enable
 hermes plugins enable senler-io-user
 ```
 
-Open a new Hermes chat and ask **"Connect Senler"**. Complete sign-in using the
-native Hermes authorization card. If in-chat connection management is unavailable,
-open Desktop's MCP connections, select the prepared `senler-io-user` entry and
-choose **Authorize**. The terminal alternative is `hermes senler connect`.
+When Hermes first loads the enabled plugin, it automatically prepares
+`senler-io-user` in the current profile's **Connections / MCP**. Select it and
+choose **Authorize** to complete native Hermes sign-in. You can also open a new
+chat and ask **"Connect Senler"** to use Hermes's authorization card. No MCP URL
+or OAuth settings need to be entered. The terminal alternative is `hermes senler connect`.
 
 Then try **"List my Senler projects and their IDs. Do not change anything."**
 To set up automation, name the project, event types and intended actions, for
@@ -54,7 +56,13 @@ Catalog installations use the reviewed commit pinned there; newer commits from
 this repository reach the catalog through a separate review. Updates use
 `hermes plugins update senler-io-user`.
 
-Version 0.5.1 gives the local setup tools their own `senler-io-setup` toolset so
+Version 0.5.2 prepares the MCP entry automatically on first activation in each
+profile. Existing settings and authorization are preserved. Later loads respect
+disabled or manually deleted connections; ask **"Connect Senler"** to restore a
+deleted entry. A plugin installed with `--no-enable` waits until it is enabled
+and loaded by Hermes.
+
+Since 0.5.1 the local setup tools have their own `senler-io-setup` toolset so
 they no longer hide the MCP tools under `senler-io-user` (`mcp-senler-io-user`).
 After updating, restart Hermes and its running gateway on the host that executes
 the agent, then open a new chat. This change keeps the saved MCP connection and
@@ -68,12 +76,15 @@ OAuth credentials; it does not require signing in again.
   implements its own login client. Senler access follows the signed-in user's
   permissions. Automation also connects by WSS to the Relay address returned
   by Senler; plain WS is accepted only on localhost for development.
-- **User-requested setup:** `senler_connect` prepares the active profile's MCP
-  entry through Hermes's configuration APIs. `senler_relay` manages the local
+- **Connection setup:** first activation of the enabled plugin prepares the
+  profile's MCP entry through Hermes's configuration APIs and records completion
+  in its profile-scoped plugin state. `senler_connect` can also prepare the entry
+  on an explicit chat request. `senler_relay` manages the local
   subscription, processing policy and notification recipient. Setup enables its platform
-  in the same profile. Existing compatible MCP settings are preserved. Importing
-  or enabling the plugin does not start sign-in, create a subscription or send
-  a customer message.
+  in the same profile. Existing compatible MCP settings are preserved. Activation
+  only saves connection settings; the plugin does not invoke OAuth, create a
+  subscription or send a customer message. Hermes owns subsequent MCP discovery
+  and sign-in.
 - **Background execution:** the `senler-io` platform runs inside the Hermes
   gateway after the operator configures automation. Its authenticated events
   use `trusted_inbound` and bypass Hermes's user-pairing/allowlist flow. The
@@ -122,13 +133,15 @@ instructions below are in Russian. Source code is licensed under MIT.
 и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
 Данные и действия доступны с правами этого пользователя.
 
-Версия 0.5.1 — предварительный выпуск с настройкой подписки из чата и уведомлениями
+Версия 0.5.2 — предварительный выпуск с автоматическим добавлением MCP,
+настройкой подписки из чата и уведомлениями
 о событиях, требующих внимания. Hermes использует инструмент `senler_relay`;
 самостоятельно писать Python-скрипты для MCP или настраивать Relay через консоль не нужно.
 Вебхук типа Hermes создаётся без URL: Senler выдаёт адрес подключения,
 плагин подключается к нему и подписка включается после автоматической проверки.
-Владелец установки подтвердил установку и вход из чата Windows Desktop;
-обработка настоящего события требует отдельной проверки.
+Владелец установки ранее подтвердил установку и вход из чата Windows Desktop;
+новое автоматическое добавление MCP в интерфейсе и обработка настоящего события
+требуют отдельной проверки.
 Новые возможности требуют соответствующего обновления
 Senler API и User MCP; ZIP не обновляет серверы Senler.
 
@@ -144,9 +157,10 @@ hermes plugins install SenlerBot/senler-io-user-hermes-plugin --no-enable
 hermes plugins enable senler-io-user
 ```
 
-После установки откройте новый чат Hermes и напишите **«Подключи Senler»**.
-Пройдите вход через штатную карточку авторизации Hermes. Адрес MCP и параметры
-OAuth уже в плагине; для этого шага PowerShell не нужен.
+После первого включения и загрузки плагина откройте **Connections / MCP**:
+`senler-io-user` добавляется автоматически. Выберите его и нажмите **Authorize / Авторизоваться**.
+Другой вариант — новый чат Hermes и просьба **«Подключи Senler»**: Hermes покажет
+штатную карточку входа. Адрес MCP и параметры OAuth уже заполнены.
 Подробности — в разделе **Подключение Senler** ниже. Публикация в официальном каталоге Hermes для установки
 из этого репозитория не требуется. Если копия из ZIP уже установлена,
 сначала выполните переход на GitHub-версию по разделу **Обновление** ниже.
@@ -179,7 +193,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -HermesHome 'C
 
 ## Подключение Senler
 
-В новом чате **того же профиля Hermes**, где включён плагин, напишите:
+После включения и загрузки плагина `senler-io-user` появляется в
+**Connections / MCP** того же профиля. Выберите подключение и нажмите
+**Authorize / Авторизоваться**, чтобы пройти штатный вход Hermes.
+Если подключение было выключено ранее, сначала включите его в этом разделе.
+
+Для подключения через чат откройте новый чат **того же профиля Hermes** и напишите:
 
 > Подключи Senler.
 
@@ -204,9 +223,11 @@ Hermes сообщит результат; настройка обработки 
 с тем же именем плагин сохраняет и предлагает проверить в настройках.
 Hermes хранит и обновляет OAuth-токены самостоятельно.
 
-Установка и включение плагина регистрируют действие подключения, команду и skills.
-MCP создаётся по просьбе пользователя в чате или через команду ниже. Фоновое событие
-не может запускать вход. Полный сценарий проверки — [docs/windows-test.md](docs/windows-test.md).
+Первое включение и загрузка плагина добавляют MCP автоматически; загрузка файлов
+без включения этого не делает. Совместимое подключение сохраняется с прежними
+настройками. Удалённая после настройки запись не восстанавливается при каждом
+запуске: для её возврата попросите «Подключи Senler». Фоновое событие не может
+запускать вход. Полный сценарий проверки — [docs/windows-test.md](docs/windows-test.md).
 
 ### Подключение через терминал
 
@@ -297,6 +318,11 @@ Hermes уточнит получателя, сохранит правило и �
 установке и не добавляет фоновый опрос диалогов.
 
 ## Обновление
+
+В 0.5.2 MCP добавляется автоматически при первой загрузке включённого плагина
+в каждом профиле. Обновление сохраняет существующее подключение, его выключенное
+состояние и авторизацию. Если запись отсутствует, она будет подготовлена без
+отдельной просьбы в чате. После этого намеренно удалённая запись сама не возвращается.
 
 В 0.5.1 исправлен конфликт имён: локальные действия `senler_connect` и `senler_relay`
 получили отдельный набор `senler-io-setup`. MCP по-прежнему называется `senler-io-user`
