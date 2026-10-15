@@ -1,6 +1,6 @@
 manifest_version: 2
 name: senler-io-user
-version: "0.5.2"
+version: "0.5.3"
 description: Senler.io User MCP connection, skills and outbound event Relay for Hermes Agent.
 author: Senler
 license: MIT
@@ -8,3 +8,4 @@ homepage: https://github.com/SenlerBot/senler-io-user-hermes-plugin
 tags: [senler, mcp, oauth, webhooks]
 provides_tools: [senler_connect, senler_relay]
 provides_hooks: [pre_tool_call, on_session_end]
+python_dependencies: ["python-socks[asyncio]"]

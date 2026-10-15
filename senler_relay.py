@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import ssl
 import sqlite3
 import time
 from pathlib import Path
@@ -24,6 +25,22 @@ CONNECT_TIMEOUT_SECONDS = 15
 IDLE_TIMEOUT_SECONDS = 5
 MAINTENANCE_INTERVAL_SECONDS = 5
 MAX_CONNECTION_TASKS = 8
+
+
+def connection_failure_details(error):
+    # Never stringify native exceptions: they may contain credentials or upgrade headers.
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if type(status) is int and 100 <= status <= 599:
+        return "http_rejected", status
+    if isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+        return "timeout", None
+    if isinstance(error, ssl.SSLError):
+        return "tls_error", None
+    if isinstance(error, ImportError):
+        return "dependency_error", None
+    if isinstance(error, OSError):
+        return "network_error", None
+    return "unexpected_error", None
 
 
 def incoming_policy():
@@ -156,22 +173,27 @@ class SenlerRelayAdapter(BasePlatformAdapter):
 
     async def _connect_subscription(self, key, config, previous=None):
         transport = None
+        stage = "prepare"
         try:
             if previous is not None:
                 # Keep ownership in transports until this coroutine starts: a
                 # task cancelled before its first step cannot run its finally.
                 self.transports.pop(key, None)
                 self.controls.pop(key, None)
+                stage = "disconnect_previous"
                 await previous.disconnect(budget_s=5)
                 previous = None
             if config is None or not self._connection_current(config):
                 return
+            stage = "connect"
             transport = WebSocketRelayTransport(config["relay_url"], PLATFORM, key,
                 gateway_id=config["gateway_id"], upgrade_secret=config["gateway_secret"], reconnect=bool(config["enabled"]))
             if config["enabled"]:
                 transport.set_inbound_handler(lambda event: self._receive(config, event))
             await asyncio.wait_for(transport.connect(), timeout=CONNECT_TIMEOUT_SECONDS)
+            stage = "handshake"
             descriptor = await asyncio.wait_for(transport.handshake(), timeout=CONNECT_TIMEOUT_SECONDS)
+            stage = "contract"
             if (descriptor.contract_version != 1 or descriptor.platform != PLATFORM
                     or not all(descriptor.supports_op(op) for op in ("senler_start", "senler_result"))):
                 raise ValueError("Unsupported Senler Relay contract")
@@ -183,15 +205,18 @@ class SenlerRelayAdapter(BasePlatformAdapter):
             else:
                 # A paused connection has no inbound handler and never enters the
                 # processing pool. Every report attempt gets a fresh idle ACK.
+                stage = "idle"
                 if not await asyncio.wait_for(transport.go_idle(timeout_s=IDLE_TIMEOUT_SECONDS), timeout=IDLE_TIMEOUT_SECONDS):
                     raise ValueError("Senler Relay did not confirm report-only mode")
                 if self._connection_current(config):
+                    stage = "report"
                     await self._report_result(key, transport, REPORT_BUDGET_SECONDS)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            # Native exceptions can include upgrade headers; never log them.
-            log.warning("Senler Relay is unavailable for subscription %s; retrying", key)
+        except Exception as error:
+            reason, status = connection_failure_details(error)
+            log.warning("Senler Relay is unavailable; subscription=%s stage=%s reason=%s http_status=%s; retrying",
+                        key, stage, reason, status if status is not None else "none")
         finally:
             if transport is not None:
                 # Keep terminal revocation until the operator replaces the key.

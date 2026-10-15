@@ -7,7 +7,7 @@ webhook events with an outbound Relay connection. The MCP address is bundled;
 each user signs in to their own account. A public IP, inbound port or tunnel is
 not required for Relay.
 
-Version **0.5.2** is a preview. The maintainer previously confirmed installation and
+Version **0.5.3** is a preview. The maintainer previously confirmed installation and
 in-chat sign-in on native Windows Desktop. The new automatic MCP preparation still
 needs a Desktop UI check. Automated tests cover connection,
 installation and Relay behavior; a real Senler event workflow still needs its
@@ -64,9 +64,16 @@ and loaded by Hermes.
 
 Since 0.5.1 the local setup tools have their own `senler-io-setup` toolset so
 they no longer hide the MCP tools under `senler-io-user` (`mcp-senler-io-user`).
-After updating, restart Hermes and its running gateway on the host that executes
-the agent, then open a new chat. This change keeps the saved MCP connection and
-OAuth credentials; it does not require signing in again.
+Version 0.5.3 declares `python-socks[asyncio]` for Relay connections through a
+SOCKS proxy. Hermes installs it through its native package manager when enabling
+or updating the plugin; accept the dependency prompt if shown. The plugin uses
+the existing proxy settings without changing them.
+
+After updating, restart the backend used by Desktop and the running gateway on
+the host that executes the agent, then open a new chat. Restarting another CLI
+backend or opening a new chat alone can leave Desktop using an older loaded
+plugin. The saved MCP connection and OAuth credentials are preserved; signing
+in again is not required.
 
 ## Connections, permissions and local data
 
@@ -119,8 +126,9 @@ OAuth credentials; it does not require signing in again.
 
 Registered capabilities: two tools (`senler_connect`, `senler_relay`), two hooks (`pre_tool_call`,
 `on_session_end`), two skills (`senler-io-user`, `senler-io-incoming`), the `senler`
-CLI command and the `senler-io` platform. No plugin-specific Python dependencies,
-environment secrets, Desktop JavaScript, or standalone background service are
+CLI command and the `senler-io` platform. The declared Python dependency is
+`python-socks[asyncio]`, required by the native transport for SOCKS proxies.
+No environment secrets, Desktop JavaScript, or standalone background service are
 installed. The command and skill descriptions are in English; detailed Windows
 instructions below are in Russian. Source code is licensed under MIT.
 
@@ -133,7 +141,7 @@ instructions below are in Russian. Source code is licensed under MIT.
 и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
 Данные и действия доступны с правами этого пользователя.
 
-Версия 0.5.2 — предварительный выпуск с автоматическим добавлением MCP,
+Версия 0.5.3 — предварительный выпуск с автоматическим добавлением MCP,
 настройкой подписки из чата и уведомлениями
 о событиях, требующих внимания. Hermes использует инструмент `senler_relay`;
 самостоятельно писать Python-скрипты для MCP или настраивать Relay через консоль не нужно.
@@ -319,6 +327,12 @@ Hermes уточнит получателя, сохранит правило и �
 
 ## Обновление
 
+В 0.5.3 добавлена зависимость `python-socks[asyncio]` для Relay через SOCKS-прокси.
+Hermes устанавливает её штатным менеджером пакетов при включении или обновлении
+плагина; подтвердите установку зависимости, если появится запрос. Настройки
+прокси сохраняются. Ошибка загрузки зависимости теперь отмечается в журнале
+gateway как `reason=dependency_error`, отдельно от сетевой ошибки и отказа HTTP.
+
 В 0.5.2 MCP добавляется автоматически при первой загрузке включённого плагина
 в каждом профиле. Обновление сохраняет существующее подключение, его выключенное
 состояние и авторизацию. Если запись отсутствует, она будет подготовлена без
@@ -353,9 +367,12 @@ ZIP-копия не имеет Git-источника для `hermes plugins upd
 hermes plugins remove senler-io-user
 ```
 
-После обновления перезапустите Hermes и работающий gateway на компьютере или
-сервере, который выполняет запросы. Переключение MCP в Desktop не перезагружает
-код плагина. Затем откройте новый чат в нужном профиле и напишите **«Подключи Senler»**.
+После обновления перезапустите серверный процесс, к которому подключён Desktop,
+и работающий gateway на компьютере или сервере, который выполняет запросы.
+Если одновременно работают `serve` и `desktop-serve`, перезапуск только `serve`
+может оставить Desktop со старым кодом плагина. Переключение MCP или новый чат
+сами по себе код не перезагружают. После перезапуска откройте новый чат в нужном
+профиле и попросите **«Вызови senler_relay с action: status»**.
 Сохранённое MCP-подключение будет использовано с его прежними настройками.
 Если плагин выключен, включите его в интерфейсе или командой
 `hermes plugins enable senler-io-user`.

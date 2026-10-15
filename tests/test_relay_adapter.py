@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import ssl
 import sys
 import tempfile
 import threading
@@ -890,6 +891,43 @@ class RelayAdapterTests(unittest.IsolatedAsyncioTestCase):
             handshake=AsyncMock(return_value=SimpleNamespace(contract_version=1, platform="senler-io", supports_op=lambda op: True)),
             go_idle=AsyncMock(return_value=idle), set_inbound_handler=Mock(),
             send_outbound=AsyncMock(return_value={"success": result}))
+
+    async def test_connection_errors_log_safe_stage_and_reason_without_secrets(self):
+        self.adapter._running = True
+        self.adapter.transports.clear()
+        secret = "Bearer private-upgrade-token gateway_secret=do-not-log"
+        cases = []
+        for status in [401, 404, 409, 503, secret, True]:
+            error = RuntimeError(secret)
+            error.response = SimpleNamespace(status_code=status, headers={"Authorization": secret})
+            valid_status = type(status) is int
+            cases.append(("connect", error, "http_rejected" if valid_status else "unexpected_error",
+                          str(status) if valid_status else "none"))
+        cases.extend([
+            ("connect", TimeoutError(secret), "timeout", "none"),
+            ("handshake", asyncio.TimeoutError(secret), "timeout", "none"),
+            ("connect", ssl.SSLError(secret), "tls_error", "none"),
+            ("connect", ImportError(secret), "dependency_error", "none"),
+            ("connect", ModuleNotFoundError(secret), "dependency_error", "none"),
+            ("connect", OSError(secret), "network_error", "none"),
+        ])
+        for stage, error, reason, status in cases:
+            with self.subTest(stage=stage, reason=reason, status=status):
+                transport = self.transport_fixture()
+                getattr(transport, stage).side_effect = error
+                with patch.object(self.relay, "WebSocketRelayTransport", return_value=transport), \
+                        self.assertLogs(self.relay.log, level="WARNING") as logs:
+                    await self.adapter._connect_subscription(self.id, self.config)
+                self.assertEqual(len(logs.output), 1)
+                message = logs.output[0]
+                self.assertIn("subscription=" + self.id, message)
+                self.assertIn("stage=" + stage, message)
+                self.assertIn("reason=" + reason, message)
+                self.assertIn("http_status=" + status, message)
+                self.assertNotIn(secret, message)
+                self.assertIsNone(logs.records[0].exc_info)
+                transport.disconnect.assert_awaited_once()
+                self.assertNotIn(self.id, self.adapter.transports)
 
     async def paused_report(self):
         row = await self.start_attempt("paused-result")

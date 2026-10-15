@@ -2,11 +2,14 @@ import asyncio, base64, hashlib, hmac, importlib.util, json, sys, tempfile, type
 from pathlib import Path
 from enum import Enum
 from typing import Callable
+from urllib.parse import urlsplit
 from websockets.asyncio.server import serve
 import argparse
 parser = argparse.ArgumentParser(description='Test pinned Hermes transport with data-class facades, no model/OAuth calls')
 parser.add_argument('--source-dir', type=Path, required=True, help='Directory containing official ws_transport.py, auth.py, descriptor.py and event.py')
-SOURCE = parser.parse_args().source_dir
+parser.add_argument('--api-connection-stdin', action='store_true', help='Read synthetic loopback API connection from stdin and verify its native handshake/probes')
+ARGS = parser.parse_args()
+SOURCE = ARGS.source_dir
 PLUGIN = Path(__file__).resolve().parents[1]
 # Only data/registry facades are stubbed. Transport, auth, descriptor and MessageEvent
 # execute unmodified code from the pinned official Hermes source.
@@ -37,6 +40,7 @@ async def main():
     with tempfile.TemporaryDirectory() as directory:
         store=storemod.RelayStore(directory)
         async def connector(ws):
+            assert ws.request.path == f'/api/hermes-relay/{ID}/relay'
             token=ws.request.headers['Authorization'].removeprefix('Bearer ')
             identity,exp,sig=base64.urlsafe_b64decode(token+'='*(-len(token)%4)).decode().split(':')
             assert identity==ID and hmac.compare_digest(sig,hmac.new(KEY.encode(),f'{ID}:{exp}'.encode(),hashlib.sha256).hexdigest())
@@ -88,6 +92,7 @@ async def main():
 async def report_only():
     frames = []
     async def connector(ws):
+        assert ws.request.path == f'/api/hermes-relay/{ID}/relay'
         assert json.loads(await ws.recv())['type'] == 'hello'
         await send_line(ws, {'type': 'descriptor', 'descriptor': DESCRIPTOR})
         # An arrival between hello and the idle ACK must remain on the server.
@@ -117,4 +122,41 @@ async def report_only():
             await transport.disconnect()
     assert [frame['type'] for frame in frames] == ['going_idle', 'outbound'], frames
 
-asyncio.run(main())
+async def api_connection():
+    # The API persistence test owns this disposable subscription/database and sends
+    # synthetic credentials over stdin, never command-line arguments or a file.
+    connection = json.load(sys.stdin)
+    address = urlsplit(connection['relay_url'])
+    assert address.scheme == 'ws' and address.hostname == '127.0.0.1', 'Only loopback tests are allowed'
+    with tempfile.TemporaryDirectory() as directory:
+        store = storemod.RelayStore(directory)
+        store.configure(connection, 'Synthetic readiness probes only')
+        saved = store.subscriptions()[connection['webhook_id']]
+        probes = set()
+        ready = asyncio.Event()
+        transport = Native(connection['relay_url'], 'senler-io', connection['webhook_id'],
+                           gateway_id=connection['gateway_id'], upgrade_secret=connection['gateway_secret'],
+                           reconnect=False)
+        async def handoff(event):
+            body = json.loads(event.text)
+            kind = store.accept(saved, body)
+            assert kind in ('control', 'probe'), 'No customer events are permitted in this test'
+            if kind == 'probe':
+                probes.add(body['event_type'])
+                if probes == set(connection['events']):
+                    ready.set()
+        transport.set_inbound_handler(handoff)
+        try:
+            await asyncio.wait_for(transport.connect(), 5)
+            descriptor = await asyncio.wait_for(transport.handshake(), 5)
+            assert descriptor.contract_version == 1 and descriptor.platform == 'senler-io'
+            assert descriptor.supports_op('senler_start') and descriptor.supports_op('senler_result')
+            await asyncio.wait_for(ready.wait(), 5)
+            # This round trip proves the server processed the preceding probe ACKs.
+            assert await transport.go_idle(timeout_s=2)
+        finally:
+            await transport.disconnect()
+    print('PASS: native Hermes connected to Senler API and acknowledged every readiness probe')
+
+
+asyncio.run(api_connection() if ARGS.api_connection_stdin else main())
