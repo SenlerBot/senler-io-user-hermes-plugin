@@ -71,7 +71,7 @@ def _config_api():
 
 
 def initialize_connection(ctx):
-    """Add the bundled server once per enabled profile; never run OAuth here."""
+    """Add the bundled server once per enabled installation; never run OAuth here."""
     try:
         config = _config_api()
         settings = config.load_config_readonly().get("plugins", {})
@@ -86,15 +86,18 @@ def initialize_connection(ctx):
         if (not any(name in enabled for name in names)
                 or any(name in disabled for name in names)):
             return
-        state = ctx.state
-        if state.get("connection_initialized", False) is True:
+        # Hermes clears plugin settings on uninstall, but deliberately keeps
+        # ctx.state with the user's durable data. A flag in that state outlives
+        # the installation and incorrectly suppresses setup after reinstall.
+        # Ignore the old durable flag: it cannot prove this install was set up.
+        if ctx.get_config("connection_initialized", False) is True:
             return
         _ensure_connection(config)
         # Removing a server after setup is intentional. Later plugin loads must
-        # not recreate it; an explicit senler_connect call can restore it.
-        state.set("connection_initialized", True)
+        # not recreate it within this installation; reinstall prepares it again.
+        ctx.set_config("connection_initialized", True)
     except Exception:
-        # Config/state exceptions may contain unrelated credentials. Keep the
+        # Config exceptions may contain unrelated credentials. Keep the
         # plugin usable so the interactive setup can explain or retry safely.
         logging.getLogger(__name__).warning(
             "Could not automatically prepare Senler's MCP connection. "

@@ -7,7 +7,7 @@ webhook events with an outbound Relay connection. The MCP address is bundled;
 each user signs in to their own account. A public IP, inbound port or tunnel is
 not required for Relay.
 
-Version **0.5.3** is a preview. The maintainer previously confirmed installation and
+Version **0.5.4** is a preview. The maintainer previously confirmed installation and
 in-chat sign-in on native Windows Desktop. The new automatic MCP preparation still
 needs a Desktop UI check. Automated tests cover connection,
 installation and Relay behavior; a real Senler event workflow still needs its
@@ -62,6 +62,13 @@ disabled or manually deleted connections; ask **"Connect Senler"** to restore a
 deleted entry. A plugin installed with `--no-enable` waits until it is enabled
 and loaded by Hermes.
 
+Version 0.5.4 fixes setup after reinstall: its completion marker now belongs to
+the installation's plugin settings, which Hermes clears on uninstall. Enabling
+a reinstalled copy prepares a missing MCP entry again. The old durable marker
+from 0.5.2–0.5.3 is ignored, so upgrading also restores a missing entry once.
+Existing connections, including disabled ones, keep their settings. Subsequent
+loads in the same installation still respect manual removal.
+
 Since 0.5.1 the local setup tools have their own `senler-io-setup` toolset so
 they no longer hide the MCP tools under `senler-io-user` (`mcp-senler-io-user`).
 Version 0.5.3 declares `python-socks[asyncio]` for Relay connections through a
@@ -85,7 +92,7 @@ in again is not required.
   by Senler; plain WS is accepted only on localhost for development.
 - **Connection setup:** first activation of the enabled plugin prepares the
   profile's MCP entry through Hermes's configuration APIs and records completion
-  in its profile-scoped plugin state. `senler_connect` can also prepare the entry
+  in its installation-scoped plugin settings. `senler_connect` can also prepare the entry
   on an explicit chat request. `senler_relay` manages the local
   subscription, processing policy and notification recipient. Setup enables its platform
   in the same profile. Existing compatible MCP settings are preserved. Activation
@@ -141,7 +148,7 @@ instructions below are in Russian. Source code is licensed under MIT.
 и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
 Данные и действия доступны с правами этого пользователя.
 
-Версия 0.5.3 — предварительный выпуск с автоматическим добавлением MCP,
+Версия 0.5.4 — предварительный выпуск с автоматическим добавлением MCP,
 настройкой подписки из чата и уведомлениями
 о событиях, требующих внимания. Hermes использует инструмент `senler_relay`;
 самостоятельно писать Python-скрипты для MCP или настраивать Relay через консоль не нужно.
@@ -236,6 +243,9 @@ Hermes хранит и обновляет OAuth-токены самостоят�
 настройками. Удалённая после настройки запись не восстанавливается при каждом
 запуске: для её возврата попросите «Подключи Senler». Фоновое событие не может
 запускать вход. Полный сценарий проверки — [docs/windows-test.md](docs/windows-test.md).
+Переустановка плагина сбрасывает отметку настройки: после включения новая копия
+снова добавит отсутствующий MCP. При переходе с 0.5.2–0.5.3 отсутствующая запись
+также восстанавливается один раз; существующее выключенное подключение сохраняется.
 
 ### Подключение через терминал
 
@@ -326,6 +336,12 @@ Hermes уточнит получателя, сохранит правило и �
 установке и не добавляет фоновый опрос диалогов.
 
 ## Обновление
+
+В 0.5.4 исправлено автоматическое добавление MCP после переустановки. Отметка
+завершённой настройки хранится через штатные настройки плагина и удаляется
+Hermes вместе с установкой. Старая отметка в постоянных данных 0.5.2–0.5.3 больше
+не блокирует подготовку: отсутствующий MCP восстанавливается один раз при обновлении.
+Существующее подключение, его настройки и выключенное состояние сохраняются.
 
 В 0.5.3 добавлена зависимость `python-socks[asyncio]` для Relay через SOCKS-прокси.
 Hermes устанавливает её штатным менеджером пакетов при включении или обновлении

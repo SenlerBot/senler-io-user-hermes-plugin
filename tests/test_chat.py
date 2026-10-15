@@ -200,8 +200,9 @@ class InitializationTests(unittest.TestCase):
                               "mcp_servers": {"other": {"command": "keep"}},
                               "model": {"api_key": "${PROVIDER_KEY}"}})
         self.state = {}
-        self.ctx = SimpleNamespace(plugin_id="senler-io-user", state=SimpleNamespace(
-            get=self.state.get, set=self.state.__setitem__))
+        self.ctx = SimpleNamespace(
+            plugin_id="senler-io-user", get_config=self.get_setting, set_config=self.set_setting,
+            state=SimpleNamespace(get=self.state.get, set=self.state.__setitem__))
         modules = patch.dict(sys.modules, {"hermes_cli": SimpleNamespace(config=self.config)})
         modules.start()
         self.addCleanup(modules.stop)
@@ -212,16 +213,61 @@ class InitializationTests(unittest.TestCase):
     def initialize(self):
         chat.initialize_connection(self.ctx)
 
+    def get_setting(self, key, default=None):
+        settings = self.config.load_config_readonly().get("plugins", {}).get("entries", {}).get(
+            self.ctx.plugin_id, {}).get("settings", {})
+        return settings.get(key, default)
+
+    def set_setting(self, key, value):
+        with self.config._CONFIG_LOCK:
+            raw = self.config.require_readable_config_before_write()
+            settings = raw.setdefault("plugins", {}).setdefault("entries", {}).setdefault(
+                self.ctx.plugin_id, {}).setdefault("settings", {})
+            settings[key] = value
+            self.config.save_config(raw)
+
     def test_first_enable_prepares_once_and_preserves_other_settings(self):
         before = copy.deepcopy(self.config.contents["default"])
         self.initialize()
         self.initialize()
         expected = chat.connection_defaults()
         expected.pop("name")
+        before["plugins"]["entries"] = {self.ctx.plugin_id: {"settings": {"connection_initialized": True}}}
         self.assertEqual(self.config.contents["default"], {
             **before, "mcp_servers": {**before["mcp_servers"], "senler-io-user": expected}})
-        self.assertEqual(self.config.saved, ["default"])
-        self.assertEqual(self.state, {"connection_initialized": True})
+        self.assertEqual(self.config.saved, ["default", "default"])
+        self.assertEqual(self.state, {})
+
+    def test_durable_flag_from_an_old_install_does_not_suppress_setup(self):
+        self.state.update(connection_initialized=True, unrelated="preserve")
+        self.initialize()
+        self.assertIn("senler-io-user", self.config.contents["default"]["mcp_servers"])
+        self.assertTrue(self.get_setting("connection_initialized"))
+        self.assertEqual(self.state, {"connection_initialized": True, "unrelated": "preserve"})
+
+    def test_reinstall_prepares_again_after_hermes_forgets_plugin_settings(self):
+        self.state["connection_initialized"] = True
+        self.initialize()
+        raw = self.config.contents["default"]
+        del raw["mcp_servers"]["senler-io-user"]
+        self.initialize()
+        self.assertNotIn("senler-io-user", raw["mcp_servers"])
+        # Native uninstall clears plugins.entries, while plugin-data survives.
+        del raw["plugins"]["entries"][self.ctx.plugin_id]
+        self.initialize()
+        self.assertIn("senler-io-user", self.config.contents["default"]["mcp_servers"])
+        self.assertTrue(self.get_setting("connection_initialized"))
+
+    def test_unrelated_plugin_settings_are_preserved(self):
+        self.config.contents["default"]["plugins"]["entries"] = {
+            self.ctx.plugin_id: {"settings": {"another_setting": "keep"}, "grants": ["keep"]},
+            "another-plugin": {"settings": {"connection_initialized": True}},
+        }
+        self.initialize()
+        entries = self.config.contents["default"]["plugins"]["entries"]
+        self.assertEqual(entries[self.ctx.plugin_id], {
+            "settings": {"another_setting": "keep", "connection_initialized": True}, "grants": ["keep"]})
+        self.assertEqual(entries["another-plugin"], {"settings": {"connection_initialized": True}})
 
     def test_preview_disabled_and_malformed_selection_never_initialize(self):
         for settings in ({}, {"enabled": []}, {"enabled": ["another"]},
@@ -239,29 +285,31 @@ class InitializationTests(unittest.TestCase):
         self.ctx.plugin_id = "integrations/senler"
         self.config.contents["default"]["plugins"]["enabled"] = [self.ctx.plugin_id]
         self.initialize()
-        self.assertEqual(self.config.saved, ["default"])
+        self.assertTrue(self.get_setting("connection_initialized"))
+        self.assertEqual(self.config.saved, ["default", "default"])
 
     def test_existing_custom_and_disabled_connections_are_preserved(self):
         for enabled in (True, False):
             with self.subTest(enabled=enabled):
-                self.state.clear()
+                self.config.contents["default"]["plugins"].pop("entries", None)
                 entry = chat.connection_defaults()
                 entry.pop("name")
                 entry.update(enabled=enabled, connect_timeout=123, tools={"include": ["search"]},
                              oauth={"scope": "chosen"}, headers={"X-Custom": "${CUSTOM_HEADER}"})
                 self.config.contents["default"]["mcp_servers"]["senler-io-user"] = entry
-                before = copy.deepcopy(self.config.contents)
+                before = copy.deepcopy(self.config.contents["default"])
                 self.initialize()
-                self.assertEqual(self.config.contents, before)
-                self.assertTrue(self.state["connection_initialized"])
-        self.assertEqual(self.config.saved, [])
+                before["plugins"]["entries"] = {self.ctx.plugin_id: {"settings": {"connection_initialized": True}}}
+                self.assertEqual(self.config.contents["default"], before)
+                self.assertTrue(self.get_setting("connection_initialized"))
+        self.assertEqual(self.config.saved, ["default", "default"])
 
     def test_removed_connection_stays_removed_until_explicit_request(self):
         self.initialize()
         del self.config.contents["default"]["mcp_servers"]["senler-io-user"]
         self.initialize()
         self.assertNotIn("senler-io-user", self.config.contents["default"]["mcp_servers"])
-        self.assertEqual(self.config.saved, ["default"])
+        self.assertEqual(self.config.saved, ["default", "default"])
         self.assertTrue(chat._prepare(self.config)["created"])
 
     def test_conflict_is_preserved_and_can_be_retried_after_repair(self):
@@ -272,19 +320,21 @@ class InitializationTests(unittest.TestCase):
         self.assertNotIn("private-secret", str(logs.output))
         self.assertEqual(self.config.contents, before)
         self.assertEqual(self.state, {})
+        self.assertFalse(self.get_setting("connection_initialized", False))
         del self.config.contents["default"]["mcp_servers"]["senler-io-user"]
         self.initialize()
-        self.assertTrue(self.state["connection_initialized"])
+        self.assertTrue(self.get_setting("connection_initialized"))
 
-    def test_failed_config_or_state_write_is_not_marked_complete_or_leaked(self):
-        for target, method in ((self.config, "save_config"), (self.ctx.state, "set")):
+    def test_failed_config_or_setting_write_is_not_marked_complete_or_leaked(self):
+        for target, method in ((self.config, "save_config"), (self.ctx, "set_config")):
             with self.subTest(method=method), patch.object(target, method, side_effect=OSError("private-secret")):
                 with self.assertLogs(chat.__name__, level="WARNING") as logs:
                     self.initialize()
                 self.assertNotIn("private-secret", str(logs.output))
                 self.assertEqual(self.state, {})
+                self.assertFalse(self.get_setting("connection_initialized", False))
         self.initialize()
-        self.assertTrue(self.state["connection_initialized"])
+        self.assertTrue(self.get_setting("connection_initialized"))
 
     def test_managed_profile_is_preserved(self):
         self.config.managed = True
