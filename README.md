@@ -7,7 +7,7 @@ webhook events with an outbound Relay connection. The MCP address is bundled;
 each user signs in to their own account. A public IP, inbound port or tunnel is
 not required for Relay.
 
-Version **0.5.5** is a preview. The maintainer previously confirmed installation and
+Version **0.5.6** is a preview. The maintainer previously confirmed installation and
 in-chat sign-in on native Windows Desktop. The new automatic MCP preparation still
 needs a Desktop UI check. Automated tests cover connection,
 installation and Relay behavior; a real Senler event workflow still needs its
@@ -61,6 +61,16 @@ profile. Existing settings and authorization are preserved. Later loads respect
 disabled or manually deleted connections; ask **"Connect Senler"** to restore a
 deleted entry. A plugin installed with `--no-enable` waits until it is enabled
 and loaded by Hermes.
+
+Version 0.5.6 expands the Senler assistance skill with documentation-led product
+guidance, agent/automation selection, scoped edits and publication, investigation
+of incorrect answers, knowledge changes, tables, access conditions and verified
+testing. The [workflow reference](skills/senler-io-user/references/senler-workflows.md)
+uses Hermes's native tools and links; it does not assume Cabinet widget controls.
+For example: **"Help me choose an agent or an automation for this Senler task"**
+or **"Find why this agent answered incorrectly and propose an instruction change."**
+Hermes loads this guidance as a skill for the relevant interactive task. Relay
+continues to embed its event instruction and the operator's saved processing rules.
 
 Version 0.5.5 keeps native setup notices and interim commentary out of Relay
 processing reports. A `/sethome` hint can no longer corrupt the model's final
@@ -153,7 +163,7 @@ instructions below are in Russian. Source code is licensed under MIT.
 и параметры OAuth уже в пакете; пользователь входит в свой аккаунт Senler.
 Данные и действия доступны с правами этого пользователя.
 
-Версия 0.5.5 — предварительный выпуск с автоматическим добавлением MCP,
+Версия 0.5.6 — предварительный выпуск с автоматическим добавлением MCP,
 настройкой подписки из чата и уведомлениями
 о событиях, требующих внимания. Hermes использует инструмент `senler_relay`;
 самостоятельно писать Python-скрипты для MCP или настраивать Relay через консоль не нужно.
@@ -341,6 +351,16 @@ Hermes уточнит получателя, сохранит правило и �
 установке и не добавляет фоновый опрос диалогов.
 
 ## Обновление
+
+В 0.5.6 расширена инструкция работы с Senler: выбор между агентом и автоматизацией,
+проверка документации, изменение черновиков и публикация согласованных правок,
+разбор ответов агента и базы знаний, работа с таблицами, условиями доступа и тестами.
+Подробные правила вынесены в [отдельную инструкцию](skills/senler-io-user/references/senler-workflows.md),
+которую Hermes читает для соответствующей задачи. Вместо инструментов виджета
+используются доступные инструменты Hermes, MCP и проверенные ссылки.
+Например: «Помоги выбрать агента или автоматизацию для этой задачи в Senler»
+или «Разберись, почему этот агент ответил неверно, и предложи правку инструкции».
+Правила каждой подписки Relay по-прежнему задаются её владельцем отдельно.
 
 В 0.5.5 исправлен сбор отчёта Relay: служебные подсказки Hermes, включая `/sethome`,
 и промежуточные сообщения больше не склеиваются с итоговым JSON модели.

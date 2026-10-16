@@ -35,7 +35,7 @@ def register(ctx):
     ctx.register_hook("pre_tool_call", before_tool)
     ctx.register_hook("on_session_end", on_session_end)
     skills = {
-        "senler-io-user": "Connect Senler.io; subscribe to incoming messages or other events; monitor dialogs and notify the operator when attention is needed.",
+        "senler-io-user": "Explain and configure Senler.io: connect through MCP, choose agents or automations, improve answers and knowledge, troubleshoot results, and monitor events with operator notifications.",
         "senler-io-incoming": "Process a supplied Senler.io webhook event according to the operator's configured workflow.",
     }
     for name, description in skills.items():
